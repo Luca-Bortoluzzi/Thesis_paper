@@ -1,0 +1,329 @@
+\chapter{Conclusions}
+\label{chap:conclusions}
+
+This thesis presented the design, implementation, and experimental use of a
+lightweight framework for the generation and management of Kathar\'a network
+laboratories. The work originated from a practical problem: even relatively
+small emulated networks require several artefacts to remain consistent with one
+another. A topology must define the correct collision domains, every node must
+receive the intended interfaces and IP addresses, gateways and static routes
+must match the addressing plan, routing daemons must be enabled and configured,
+and application-specific files must be placed in the correct node directories.
+When these tasks are performed manually, the resulting laboratory is often
+correct only after several iterations of editing and troubleshooting. The
+framework developed in this thesis addresses this problem by moving the primary
+description of a laboratory to a declarative YAML configuration and deriving the
+Kathar\'a artefacts from that source.
+
+The contribution is deliberately modest in scope. The project does not attempt
+to replace Kathar\'a, Docker, or FRRouting, and it does not introduce a new
+network-emulation runtime; instead, it preserves the standard Kathar\'a
+workflow described by the project documentation
+\cite{kathara_website,kathara_manpage}. It adds a small abstraction layer that
+makes a selected class of laboratories easier to describe, validate, regenerate,
+and reuse while preserving compatibility with the normal Kathar\'a workflow.
+This design choice shaped the complete implementation and is also central to the
+assessment presented in this concluding chapter.
+
+\section{Summary of Contributions}
+\label{sec:conclusion-contributions}
+
+The first contribution of the work is the definition of a declarative
+configuration model for Kathar\'a laboratories. A single YAML document can
+represent the laboratory name and metadata, node roles, interfaces, collision
+domains, IP addressing, default gateways, static routes, startup commands, and
+routing-related information. The same model supports several node categories
+and can express both simple host-router-server laboratories and more structured
+routed environments. The use of YAML keeps the source configuration readable
+and versionable, while the generated Kathar\'a directory remains a derived
+artefact rather than the authoritative description of the topology.
+
+A second contribution is the validation stage introduced before generation.
+The framework first checks the minimum structural requirements of the document
+and then performs semantic checks on the network description. These checks
+include node and collision-domain naming, node types, IP syntax, duplicate
+addresses, use of network or broadcast addresses, inconsistent or overlapping
+subnets, default gateways that are not locally reachable, routing-device
+consistency, router identifiers, OSPF network declarations, and BGP parameters
+and neighbour relationships. The distinction between blocking errors and
+warnings allows the framework to reject configurations that cannot be generated
+safely while still reporting suspicious situations that may be intentional.
+The \cliopt{validate-only} mode also makes validation useful independently of
+generation.
+
+The third contribution is the automatic production of standard Kathar\'a
+artefacts. Starting from a validated configuration, the generator creates the
+laboratory directory, writes \texttt{lab.conf}, produces the startup files for
+individual nodes, selects suitable container images, and creates the FRRouting
+files required by routing-capable devices. OSPF, RIP, and BGP are supported by
+the current generation logic, while the configuration model also provides an
+escape mechanism for cases in which a complete custom FRRouting configuration
+is more appropriate than the declarative subset implemented by the framework.
+Node-specific directories can additionally be imported into the generated
+laboratory, allowing application scripts and configuration files to coexist
+with the automatically generated network artefacts.
+
+The generator also provides optional Wireshark integration. The framework can
+identify the collision domains defined by the topology and attach a dedicated
+capture container to selected networks. This avoids requiring separate Docker
+or packet-capture setup after generation and keeps the observation point part
+of the laboratory itself. Together with the lifecycle wrappers for starting,
+stopping, and removing laboratories, these features create a complete workflow
+from configuration to execution while still relying on standard Kathar\'a
+commands underneath.
+
+A further contribution is the explicit separation between configuration,
+generation, execution, and experimentation. The architecture described in
+\Cref{chap:requirements-architecture} is reflected by the implementation: YAML
+files describe the desired laboratory, the loader and validator analyse that
+description, the generator produces the runtime artefacts, and separate tools
+operate on the generated environment. This separation prevents the topology
+description from becoming entangled with one specific experiment. It also makes
+it possible to regenerate a laboratory after changing the configuration instead
+of applying persistent modifications directly to generated files.
+
+Finally, the framework was exercised in a non-trivial experimental setting
+rather than being evaluated only through minimal examples. The case study in
+\Cref{chap:experimental-evaluation} combined eight legitimate clients, multiple
+routers, OSPF-based connectivity, an application service, concurrent
+measurements, server-side metrics, and a bounded adverse workload. The purpose
+of that scenario was not to make attack generation the central contribution of
+the thesis. It was used to verify that laboratories produced by the framework
+could support coordinated, repeatable measurements in substantially different
+operating conditions. A second topology placed a rate-limiting reverse proxy in
+front of the service, demonstrating that the same measurement schema can also
+support an explicit mitigation comparison.
+
+From a software-engineering perspective, these contributions are also the
+result of successive refinement rather than independent features selected in
+advance. The project moved from basic topology generation to pre-generation
+validation, richer routing support, diagnostic and lifecycle facilities,
+application-level testing, concurrent measurements, controlled experimentation,
+and finally robustness and scalability analysis. Several final behaviours are
+direct consequences of problems observed during earlier iterations: service
+checks were separated from reachability after runtime testing showed that a
+reachable node could still provide no usable application response; concurrent
+rounds replaced sequential client execution when temporal comparability became
+necessary; readiness checks were strengthened after an early baseline was
+contaminated by unavailable routes; and the final stress tests exposed the
+performance cost of defensive duplicated validation. The implemented
+architecture therefore records both successful design decisions and trade-offs
+identified through verification.
+
+These contributions can be summarised as a progression from a declarative
+network description to an executable and observable environment:
+
+\begin{center}
+\begin{tikzpicture}[
+    node distance=1.25cm,
+    every node/.style={font=\small},
+    box/.style={draw, rounded corners, minimum width=3.25cm, minimum height=0.72cm, align=center},
+    arrow/.style={-{Latex[length=2mm]}, thick}
+]
+\node[box] (yaml) {Declarative YAML\\configuration};
+\node[box, below=of yaml] (validate) {Structural and\\semantic validation};
+\node[box, below=of validate] (generate) {Kathar\'a artefact\\generation};
+\node[box, below=of generate] (runtime) {Laboratory execution\\and inspection};
+\node[box, below=of runtime] (experiment) {Repeatable measurement\\and experimentation};
+\draw[arrow] (yaml) -- (validate);
+\draw[arrow] (validate) -- (generate);
+\draw[arrow] (generate) -- (runtime);
+\draw[arrow] (runtime) -- (experiment);
+\end{tikzpicture}
+\end{center}
+
+The resulting framework remains intentionally small, but the complete chain is
+important. Automation is useful only if the input can be checked, the output is
+understandable, and the generated environment remains compatible with the tools
+that users already expect to use. For this reason, the project favours explicit
+files and standard Kathar\'a conventions over a more opaque orchestration layer.
+
+\section{Main Findings and Overall Assessment}
+\label{sec:conclusion-findings}
+
+The implementation confirms that a declarative front end can reduce the amount
+of repetitive work required to construct Kathar\'a laboratories without hiding
+the resulting network configuration. The generated \texttt{lab.conf}, startup
+files, and FRRouting configuration remain directly inspectable. This is
+particularly useful in an educational or experimental context, where the
+configuration itself is often as important as the running network. The
+framework therefore automates file construction while preserving the ability to
+connect to a node, inspect interfaces and routes, use \texttt{vtysh}, capture
+packets, and modify or troubleshoot the environment with ordinary Kathar\'a and
+Linux tools.
+
+The validation layer proved equally important. Several classes of mistakes can
+be identified before any container is started, including addressing conflicts,
+gateways outside directly connected networks, and inconsistent routing
+parameters. Detecting these conditions at configuration time does not guarantee
+that the running network will behave exactly as intended, but it reduces a set
+of errors that would otherwise appear later as connectivity or routing
+failures. This distinction between static correctness and runtime correctness is
+also one of the reasons why runtime verification was identified in
+\Cref{chap:future-developments} as a natural direction for future work.
+
+The framework also demonstrated that the same generation process can be used
+for topologies of different complexity. Beyond the example laboratories, the
+translator was stress-tested in Chapter~\ref{chap:robustness-security-scalability}
+with synthetic configurations containing up to 10,000 nodes and with inputs
+dominated by large route or command sets. These results characterise loading,
+validation, and file-generation behaviour, but they do not establish that
+laboratories of comparable size can be executed efficiently in Kathar\'a. The
+runtime scalability of large generated laboratories therefore remains outside
+the evaluated scope.
+
+The experimental evaluation provides a more concrete assessment of the running
+environment. Five complete executions were collected for each topology. Every
+direct-server baseline completed all 80 legitimate application requests. In
+every subsequent controlled run, 16 of 80 requests completed, corresponding to
+20\% over the complete transition; all 16 occurred in the first two rounds
+before workload activation. During rounds 3--10, every direct execution
+therefore completed 0 of 64 legitimate requests, corresponding to 0\%
+attack-active availability. At the same time, all ICMP probes and TCP
+connection attempts succeeded. In each run the instrumented server reached its
+configured limit of 20 active application connections and recorded 264 rejected
+or \texttt{BUSY} events during the load phase.
+
+The five reverse-proxy executions produced a different and equally stable
+outcome under the same round structure. Every baseline and controlled-load
+phase completed all 80 legitimate requests, so attack-active availability was
+100\% in every run, compared with 0\% without the proxy. The protected backend
+reached at most eight simultaneous connections and recorded no rejected or
+\texttt{BUSY} event in any repetition. Across paired runs, the increase in the
+per-run baseline median application response had a median of 2.167 ms and an
+interquartile interval of [2.147, 2.472] ms, illustrating the
+availability--overhead trade-off in the tested configuration.
+
+The direct-server result is significant mainly because of the distinction it exposes.
+The emulated routing infrastructure remained reachable and the TCP service port
+continued to accept connections, yet the application was unable to complete
+most legitimate requests. The experiment therefore demonstrates that ICMP
+reachability, TCP connection establishment, and application availability are
+separate observations. Measuring only ping latency or whether a port can be
+opened would have missed the principal effect observed by the legitimate
+clients. For this reason, the framework's measurement tools record several
+timing and success dimensions instead of collapsing the experiment into a
+single latency value.
+
+The experimental evidence must nevertheless be interpreted within its scope.
+The five paired acquisition blocks provide evidence of consistent run-to-run
+behaviour for the implemented testbed under the stated parameters and clean
+laboratory restarts, as detailed in \Cref{sec:repeated-run-validation}. They
+remain a small sample, were collected on one host and day, and used a fixed
+direct-then-mitigated order. Moreover, the mitigation result applies to the
+bounded connection-oriented workload used in the laboratory and does not
+establish protection against volumetric or more diverse application-layer
+attacks.
+
+This limitation is useful when assessing the framework as a research prototype.
+The project succeeds in automating configuration, validation, generation, and a
+repeatable experimental workflow, but it does not yet provide all of the
+controls expected from a mature experimentation platform. There is no formal
+schema independent of the Python implementation, no complete typed internal
+network model, no automatic verification that the runtime state matches the
+expected state, and no systematic benchmark of runtime execution at
+large scale. These points do not invalidate the implemented workflow; they
+define the boundary of the contribution and motivate the evolution path
+presented in the previous chapter.
+
+From an architectural perspective, the most important outcome is therefore not
+a single generated topology or a single experimental result. It is the
+separation of concerns established by the project. The source configuration
+expresses intent, validation checks that intent against the supported model,
+generation converts it into standard runtime artefacts, and measurement tools
+observe the behaviour of the resulting network. Because each stage has a clear
+responsibility, the framework can be extended without requiring the current
+workflow to be discarded. Declarative experiment definitions, runtime
+verification, richer reporting, topology visualisation, or additional backend
+abstractions can all build on the same separation.
+
+
+\subsection{Answers to the Research Questions}
+\label{sec:conclusion-rq-answers}
+
+\noindent\textbf{RQ1 --- Declarative translation.}
+The framework translates the YAML description through a staged pipeline:
+loading, structural and semantic validation, and generation. The output is an
+ordinary Kathar\'a directory containing \texttt{lab.conf}, per-node startup
+files, imported resources, and FRRouting files where required. The generated
+artefacts remain inspectable and usable with standard Kathar\'a commands.
+
+\noindent\textbf{RQ2 --- Generated configuration and deployed resources.}
+Address assignments, gateways, static routes, and the supported OSPF, RIP, and
+BGP forms are translated into startup or FRRouting configuration. Application
+resources and startup commands can be deployed from node-specific directories,
+and a Wireshark node can be attached to selected collision domains. The current
+model does not, however, turn \texttt{forwarding: true} into a kernel command or
+turn a \texttt{switch} role into an automatic Layer~2 bridge; such behaviour
+requires explicit commands or resources.
+
+\noindent\textbf{RQ3 --- Repeated service measurement.}
+The client workflow executes concurrent rounds from several legitimate nodes
+and records ICMP reachability, TCP establishment, application completion, and
+timing fields in CSV form. Success requires the complete application exchange
+of selection \texttt{1} followed by \texttt{pong}, so a reachable host or a
+successful handshake is not misreported as an available service.
+
+\noindent\textbf{RQ4 --- Controlled comparison and mitigation.}
+The same client procedure and result schema were used for the baseline,
+controlled-load, and reverse-proxy experiments. Under the tested active-load
+condition, availability was 0\% in all five direct-server runs and 100\% in all
+five protected runs, while backend occupancy and rejection counters supplied
+independent server-side evidence. This supports the mitigation only for the
+bounded workload and parameters evaluated here.
+
+\noindent\textbf{RQ5 --- Deterministic framework and LLM assistance.}
+An LLM can draft YAML, shell, or FRRouting text and help interpret results, but
+plausible text is not equivalent to a checked, reproducible experiment. The
+framework supplies a validated configuration interface, repeatable semantic
+checks, coordinated artefact generation, and machine-readable evidence. The
+two approaches are therefore complementary: flexible drafting and explanation
+surround a deterministic validation--generation--measurement boundary, in line
+with work combining LLM-based configuration with explicit synthesis or
+verification \cite{wang2024netconfeval,lira2025llmnetcfg}.
+
+\section{Final Remarks}
+\label{sec:conclusion-final-remarks}
+
+The objective of this thesis was to investigate whether a simple framework
+could make the construction and use of Kathar\'a laboratories more systematic
+without replacing the tools and file formats on which Kathar\'a is based. The
+implemented prototype shows that this is feasible. A readable YAML description
+can be validated and transformed into an ordinary Kathar\'a laboratory,
+including node startup configuration and dynamic-routing files, while optional
+resources and packet-capture support can be incorporated into the same
+generation process. The resulting environment remains accessible through the
+normal Kathar\'a lifecycle and can be regenerated from its declarative source.
+
+The experimental case study further shows why this type of automation is useful.
+Once the laboratory structure is reproducible, the focus of an experiment can
+move from repeatedly preparing the environment to observing its behaviour. In
+the evaluation performed for this thesis, concurrent measurements captured a
+clear difference between normal service operation and operation under a bounded
+adverse workload, while simultaneously showing that network reachability alone
+was insufficient to describe application behaviour. This provides a practical
+example of how the generated infrastructure can be used for networking and
+security experiments rather than only for topology deployment.
+
+The framework should therefore be considered a foundation rather than a final
+platform. Its current implementation addresses a deliberately limited set of
+network primitives and operational tasks, but it establishes a coherent path
+from configuration to execution and measurement. The developments proposed in
+\Cref{chap:future-developments}---generalised security and resilience testing,
+runtime verification, improved experiment management, an optional LLM-assisted
+configuration loop, and a cleaner separation between the logical model and the
+execution backend---would extend this foundation while preserving its original
+emphasis on explicit configuration and reproducibility.
+
+In its present form, the project demonstrates that useful automation does not
+require hiding the network from the user. By generating standard Kathar\'a
+artefacts from a validated declarative source, the framework reduces repetitive
+configuration while keeping the laboratory transparent, inspectable, and
+compatible with existing tools. The same principle remains valid in an
+LLM-assisted workflow: natural-language assistance can make configuration more
+accessible, but the accepted experiment should still pass through explicit,
+inspectable, and reproducible validation and generation stages. This balance
+between flexible assistance, deterministic control, and visibility is the main
+result of the work and provides the basis for further development in network
+emulation, teaching, controlled security testing, and reproducible
+experimentation.

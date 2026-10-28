@@ -1,0 +1,468 @@
+\chapter{Network Emulation and Supporting Technologies}
+\label{chap:background}
+
+\section{Chapter Overview}
+\label{sec:chapter1-overview}
+
+This chapter introduces the technical concepts and software technologies on
+which the developed framework is based. The purpose is not to provide an
+exhaustive description of each tool, but to identify the functions that each
+technology performs in the proposed workflow. The framework combines
+container-based execution, network emulation, declarative configuration,
+dynamic routing, and packet inspection. These elements must cooperate while
+remaining sufficiently transparent for the user to inspect and debug a
+generated laboratory.
+
+The chapter first discusses the role of experimental network environments and
+the distinction between simulation and emulation. It then presents containers
+and Docker as the execution substrate used by Kathar\'a. The Kathar\'a
+laboratory model is described through nodes, interfaces, collision domains,
+startup files, and node directories. The final sections introduce YAML,
+FRRouting, Wireshark, and the role of automated validation in a reproducible
+laboratory-generation process.
+
+\section{Experimental Network Environments}
+\label{sec:experimental-network-environments}
+
+Network experimentation is required whenever a topology, protocol, service,
+or configuration must be studied without modifying an operational network. A
+small experiment may contain only two hosts and one router. A more complete
+scenario may include several access networks, a routing core, a server
+network, multiple routing protocols, and monitoring components. Reproducing
+such a scenario on physical equipment is possible, but it introduces costs
+and practical limitations.
+
+Physical laboratories require dedicated devices, cabling, power, and space.
+They also make repeated experiments more difficult because the initial state
+must be restored before every execution. The configuration of one device may
+remain from a previous test, while a replacement device may use a different
+software version. These factors reduce reproducibility and make the
+experimental procedure dependent on the available hardware.
+
+Software-based environments address these limitations by representing network
+nodes and links through processes, virtual machines, containers, or simulated
+models. A complete topology can be stored as files, recreated on demand, and
+shared with another user; container- and namespace-based emulation systems are
+commonly used to support rapid and repeatable prototyping
+\cite{lantz2010network,scazzariello2020kathara}. This approach is particularly appropriate for
+educational and research activities, where the objective is often to inspect
+the behaviour of protocols rather than to reproduce the exact performance of
+physical hardware.
+
+The use of a software environment does not remove the need for careful design.
+Addresses, routes, interfaces, and services must still be mutually coherent.
+Automation is therefore valuable not only because it reduces typing, but
+because it makes it possible to derive several configuration artefacts from a
+single description.
+
+\section{Simulation and Emulation}
+\label{sec:simulation-emulation}
+
+The terms \emph{simulation} and \emph{emulation} are sometimes used
+interchangeably, but they describe different approaches. A simulator models
+the behaviour of a system through abstractions. Events such as packet
+transmission, propagation delay, queueing, or protocol transitions are
+represented by the simulation engine. The simulated node does not necessarily
+execute the same software that would run on a real host or router.
+
+An emulator instead provides an execution environment in which real network
+stacks and applications can operate. The nodes may be implemented as virtual
+machines, containers, namespaces, or other isolated processes, but they
+execute real commands and exchange real packets. This gives the user access to
+standard Linux tools and routing daemons.
+
+The distinction affects the interpretation of results. Simulation is suitable
+when the experiment requires controlled mathematical models, large synthetic
+networks, or repeatable event timing. Emulation is useful when the experiment
+focuses on configuration, interoperability, command-line behaviour, packet
+formats, and software services. The framework developed in this thesis uses
+emulation because its primary goal is to generate executable Kathar\'a
+laboratories rather than abstract protocol models.
+
+The use of emulation also explains why generated files remain important. A
+laboratory is not only a graph of nodes and links. Each node must receive Linux
+commands, files, and, where required, routing-daemon configuration. The
+framework must therefore translate an abstract topology description into a
+filesystem structure that can be executed by the emulator.
+
+\section{Virtual Machines and Containers}
+\label{sec:virtual-machines-containers}
+
+Virtual machines and containers are two common mechanisms for creating
+isolated execution environments. A virtual machine emulates or virtualises a
+complete computer and normally runs its own operating-system kernel. This
+provides strong isolation and makes it possible to run different operating
+systems on the same host. The cost is a comparatively large memory footprint,
+longer startup time, and additional management overhead.
+
+Containers isolate processes while sharing the host kernel. Each container
+can have its own filesystem view, process namespace, network namespace, and
+resource limits \cite{docker_container,docker_overview}. Since a container does not normally boot a complete guest
+kernel, it can be created and destroyed more quickly than a virtual machine.
+This property is useful for network laboratories, where a topology can contain
+many nodes that execute similar Linux environments.
+
+Containers should not be interpreted as lightweight virtual machines in every
+respect. Their execution model and isolation boundaries are different. For the
+purposes of this thesis, however, the relevant property is that each container
+can act as an independent network node. It can own virtual interfaces, an IP
+routing table, processes, and configuration files. Multiple containers can
+therefore represent hosts and routers on a single workstation.
+
+Container-based emulation also supports rapid regeneration. When the source
+configuration changes, the old laboratory can be stopped and a new set of
+containers can be created from the updated files. This matches the intended
+workflow of the framework: the YAML description is treated as the persistent
+source, while the running containers are temporary instances.
+
+\section{Docker as the Execution Substrate}
+\label{sec:docker}
+
+Docker is the container runtime used by Kathar\'a in the developed project
+\cite{docker_overview}. A Docker image contains a filesystem and metadata from
+which containers are created. A container is a running or stopped instance of an image
+\cite{docker_container,docker_image}. Images make it possible to provide a
+consistent set of tools across nodes, while containers provide isolated
+runtime instances.
+
+Two image categories are relevant to the generator. Ordinary end hosts use the
+\texttt{kathara/base} image by default. Nodes that require routing functions
+use \texttt{kathara/frr}. The generator may also accept an explicit image in
+the YAML configuration, allowing a node to override the default selection.
+This decision is implemented by considering both the declared node type and
+the presence of an enabled FRRouting section.
+
+Docker supplies the low-level execution environment, but the framework does
+not directly create Docker networks or containers. That responsibility is
+delegated to Kathar\'a. This separation avoids duplicating the emulator's
+functionality. The framework generates standard Kathar\'a artefacts, and
+Kathar\'a subsequently translates them into Docker operations.
+
+This architecture has an additional advantage: the generated laboratory can
+be inspected and started without using the Python generator again. Once the
+files exist, standard Kathar\'a commands are sufficient to operate the
+laboratory. The output therefore remains portable within the Kathar\'a
+ecosystem.
+
+\section{Kathar\'a}
+\label{sec:kathara}
+
+Kathar\'a is a container-based network emulation system designed for teaching,
+research, protocol development, and controlled experimentation
+\cite{kathara_website,scazzariello2020kathara,bonofiglio2018kathara}. It represents network devices as
+containers and interconnects their interfaces through named Layer 2 collision
+domains. A laboratory is stored as a directory whose files describe the
+network and the configuration of each node \cite{kathara_manpage}.
+
+\subsection{Nodes and Interfaces}
+\label{subsec:kathara-nodes-interfaces}
+
+A Kathar\'a node is identified by a name. The node can represent an end host,
+a router, a firewall, a server, or another Linux-based device. Interface
+indices are explicit in \texttt{lab.conf}: index 0 maps to \texttt{eth0},
+index 1 to \texttt{eth1}, and so on \cite{kathara_labconf_manpage}. In this
+framework, those indices are generated from the order of the interfaces in the
+YAML list.
+
+A topology entry has the following form:
+
+\begin{lstlisting}[caption={Basic Kathar\'a interface declaration.},label={lst:kathara-interface}]
+r1[0]="lan_a"
+r1[1]="backbone"
+\end{lstlisting}
+
+The first line attaches \texttt{r1:eth0} to the collision domain
+\texttt{lan\_a}. The second attaches \texttt{r1:eth1} to
+\texttt{backbone}. Nodes that refer to the same collision-domain name are
+connected at Layer 2.
+
+The declaration does not assign an IP address. Layer 2 connectivity and Layer
+3 configuration are deliberately separated. The topology file determines
+which interfaces share a network segment, while startup commands configure
+addresses and routes inside the containers.
+
+\subsection{The lab.conf File}
+\label{subsec:lab-conf}
+
+The \texttt{lab.conf} file is the central topology file of a Kathar\'a
+laboratory. In addition to interface declarations, it can contain laboratory
+metadata and node properties such as the selected Docker image. The generator
+produces entries such as:
+
+\begin{lstlisting}[caption={Simplified generated lab.conf content.},label={lst:lab-conf-example}]
+LAB_DESCRIPTION="Example routed laboratory"
+LAB_VERSION=2.0
+LAB_AUTHOR="Luca-Bortoluzzi"
+
+pc_a[0]="lan_a"
+pc_a[image]="kathara/base"
+
+r1[0]="lan_a"
+r1[1]="backbone"
+r1[image]="kathara/frr"
+\end{lstlisting}
+
+This file is derived from the YAML node and interface declarations. The order
+of interfaces in YAML determines the corresponding interface index in
+\texttt{lab.conf}. Preserving this relationship is important because the
+startup file assigns addresses to \texttt{eth0}, \texttt{eth1}, and the
+subsequent interfaces in the same order.
+
+\subsection{Startup Files}
+\label{subsec:startup-files}
+
+For a node named \texttt{r1}, Kathar\'a executes the commands stored in
+\texttt{r1.startup} when the laboratory is started. Startup files commonly
+configure addresses, default gateways, static routes, forwarding, and
+services. A simplified file may contain:
+
+\begin{lstlisting}[language=bash,caption={Simplified node startup file.},label={lst:startup-example}]
+ip address add 10.10.1.1/24 dev eth0
+ip address add 10.0.12.1/30 dev eth1
+systemctl start frr
+\end{lstlisting}
+
+The generator writes one startup file for each node. It also appends custom
+commands declared in YAML. This mechanism keeps common configuration
+automatic while retaining an escape hatch for scenario-specific behaviour.
+
+\subsection{Node Directories and hostlab}
+\label{subsec:node-directories}
+
+A directory with the same name as a node contains files that are made
+available inside that node. In the project workflow, resources stored beside a
+YAML configuration can be copied to the generated laboratory when the
+\cliopt{import-dirs} option is used. A directory named \texttt{server}, for
+example, is imported only if the YAML file declares a node named
+\texttt{server}.
+
+These resources can be accessed from the container through the laboratory
+mount, commonly under \texttt{/hostlab}. This allows the startup file to
+execute scripts that remain visible and editable on the host. The generator
+excludes cache files and repository metadata so that generated laboratories do
+not contain unnecessary development artefacts.
+
+\subsection{Laboratory Lifecycle}
+\label{subsec:kathara-lifecycle}
+
+A generated laboratory is started with \texttt{kathara lstart} from its
+directory. Kathar\'a reads \texttt{lab.conf}, creates the containers,
+configures their interfaces, mounts node directories, and executes startup
+files. A running node can be accessed using \texttt{kathara connect}.
+
+The laboratory is stopped and removed from the runtime with
+\texttt{kathara lclean}. The source files remain on disk and can be used for a
+later execution \cite{kathara_manpage}. The project provides wrapper scripts for these operations;
+their implementation and the complete generation lifecycle are discussed in
+the following chapter.
+
+\section{Declarative Configuration with YAML}
+\label{sec:yaml-background}
+
+YAML is a human-readable data-serialisation language frequently used for
+configuration files \cite{yaml122}. It supports mappings, lists,
+scalars, comments, and nested structures. These properties make it suitable
+for representing a network laboratory in a form that is easier to maintain
+than several independent startup and routing files.
+
+A declarative description states the desired structure of the laboratory. It
+does not require the user to write every command needed to create that
+structure. The following fragment describes a host and a router:
+
+\begin{lstlisting}[caption={Simplified YAML topology declaration.},label={lst:yaml-background-example}]
+lab_name: example_lab
+
+nodes:
+  pc_a:
+    type: host
+    interfaces:
+      - network: lan_a
+        ip: 10.10.1.10/24
+    default_gateway: 10.10.1.1
+
+  r1:
+    type: router
+    interfaces:
+      - network: lan_a
+        ip: 10.10.1.1/24
+      - network: backbone
+        ip: 10.0.12.1/30
+\end{lstlisting}
+
+The same data are later translated into several outputs: interface entries in
+\texttt{lab.conf}, address commands in startup files, a default route for the
+host, and potentially routing configuration for the router. The YAML document
+therefore becomes the persistent source of truth for generated files.
+
+Using a structured input also enables validation. The framework can check
+whether required fields exist, addresses are valid and unique, gateways belong
+to a local subnet, and routing declarations refer to existing interfaces. The
+validation process is a central subject of Chapter~\ref{chap:configuration-validation}.
+
+\section{Dynamic Routing and FRRouting}
+\label{sec:frrouting-background}
+
+FRRouting, commonly abbreviated as FRR, is an open-source routing suite for
+Linux and Unix systems. It provides implementations of protocols including
+OSPF, RIP, and BGP \cite{frr_user_guide}. In the generated laboratories,
+FRR allows containerised nodes to exchange routes dynamically and behave as
+software routers.
+
+FRR is organised around a set of protocol daemons and a common configuration
+interface. The \texttt{daemons} file determines which processes are enabled.
+The integrated \texttt{frr.conf} file contains protocol configuration, while
+\texttt{vtysh} provides a unified command-line interface for inspection and
+administration.
+
+\subsection{OSPF}
+\label{subsec:ospf-background}
+
+Open Shortest Path First is a link-state interior gateway protocol. Routers
+exchange topology information and compute paths within an autonomous routing
+domain \cite{rfc2328}. The project supports both a common area declared at node level and an
+\texttt{ospf\_area} marker associated with individual interfaces. This allows
+simple single-area topologies and more structured multi-area configurations.
+
+The generator can derive OSPF network statements from interface prefixes.
+Validation verifies that explicitly declared OSPF networks overlap a locally
+connected interface. This prevents a router from advertising a prefix that is
+unrelated to its own configuration.
+
+\subsection{RIP}
+\label{subsec:rip-background}
+
+Routing Information Protocol is a distance-vector protocol with a simpler
+configuration model \cite{rfc2453}. In the project, the generator can enable the RIP daemon,
+select the protocol version, disable automatic summarisation, and derive
+network statements from node interfaces. RIP is useful for demonstrating that
+the framework is not tied to one routing protocol.
+
+\subsection{BGP}
+\label{subsec:bgp-background}
+
+Border Gateway Protocol exchanges reachability information between autonomous
+systems \cite{rfc4271}. A BGP configuration requires an autonomous-system number, a router
+identifier, one or more neighbours, and the prefixes to advertise. The
+framework validates neighbour addresses, remote autonomous-system values, and
+the existence of corresponding peer nodes.
+
+The generated configuration includes two commands that are relevant in small
+FRR laboratories: \texttt{no bgp ebgp-requires-policy} and
+\texttt{no bgp network import-check}. Their use can be controlled through the
+configuration model. They allow deliberately minimal educational topologies
+to advertise prefixes without requiring additional policy definitions or an
+already installed matching route. The policy-related behaviour is particularly
+relevant to the default eBGP propagation model standardised in RFC~8212
+\cite{rfc8212}.
+
+\section{Traffic Inspection with Wireshark}
+\label{sec:wireshark-background}
+
+Wireshark is a network protocol analyser used to capture and inspect packets
+\cite{wireshark_user_guide}. In an emulated environment it is useful for confirming
+that packets traverse the expected collision domain, inspecting protocol
+messages, and distinguishing routing failures from application failures.
+
+The framework supports optional real-time Wireshark integration by adding a
+dedicated node directly to \texttt{lab.conf}. The user can attach the node to
+one or more selected collision domains. This is preferable to modifying an
+existing host because monitoring remains separated from the logical role of
+the emulated devices.
+
+Packet capture is optional. A laboratory can be generated and executed without
+Wireshark, while the same topology can later be regenerated with monitoring
+enabled. This reflects a general design principle of the framework: diagnostic
+features should not be mandatory components of every laboratory.
+
+\section{Automation, Validation, and Reproducibility}
+\label{sec:automation-reproducibility}
+
+Automation is often described as a means of reducing manual effort, but its
+more important contribution in this project is consistency. A manually edited
+laboratory may contain a valid \texttt{lab.conf} and valid startup files that
+nevertheless disagree with one another. A declarative generator can derive
+both artefacts from the same interface list.
+
+The framework applies two levels of validation before generation. Structural
+validation verifies the minimum document shape required by the generator.
+Semantic validation analyses relationships among nodes, interfaces, subnets,
+gateways, and routing declarations. Errors stop generation, while warnings
+identify suspicious but potentially intentional configurations.
+
+Reproducibility depends on preserving the source configuration and generation
+parameters. The generated laboratory is treated as a derived artefact. If a
+persistent change is required, it should be made in the YAML file or in the
+node resources stored under \texttt{configs/}, not only in the generated
+\texttt{labs/} directory. A clean regeneration can then reconstruct the
+laboratory from the maintained source.
+
+\section{Positioning with Respect to Related Work}
+\label{sec:related-work-positioning}
+
+The framework combines ideas that are usually addressed separately in the
+literature: executable network emulation, declarative configuration,
+deterministic validation, and collection of application-level evidence. Its
+contribution is not a new container runtime or routing suite. Rather, it is the
+integration of these responsibilities around the standard Kathar\'a laboratory
+format.
+
+Mininet demonstrated that realistic network software could be used for rapid
+prototyping on a single machine, with particular emphasis on software-defined
+network experiments \cite{lantz2010network}. Kathar\'a provides the execution
+substrate selected in this thesis and represents a broader range of Linux
+network nodes through containers and collision domains
+\cite{bonofiglio2018kathara,scazzariello2020kathara}. The developed framework
+operates one level above Kathar\'a: it does not replace its runtime or file
+format, but generates those files from a validated declarative source and adds
+repeatable lifecycle and measurement operations.
+
+A second line of work studies the use of LLMs for network configuration.
+NetConfEval evaluates whether LLMs can perform network-configuration tasks,
+while more recent work considers their role in zero-touch management and
+surveys their wider use in network operations
+\cite{wang2024netconfeval,lira2025llmnetcfg,liu2025llmnetworking}. These works
+motivate natural-language assistance, but they also address a different
+abstraction boundary. The present framework does not attempt to infer intent:
+it receives explicit YAML and applies repeatable rules before producing an
+executable laboratory. An LLM can therefore be used upstream as an optional
+authoring aid, without becoming the authority that accepts a configuration.
+
+\begin{table}[htbp]
+\centering
+\small
+\setlength{\tabcolsep}{4pt}
+\begin{tabular}{>{\raggedright\arraybackslash}p{0.16\textwidth}>{\raggedright\arraybackslash}p{0.25\textwidth}>{\raggedright\arraybackslash}p{0.25\textwidth}>{\raggedright\arraybackslash}p{0.22\textwidth}}
+\toprule
+\textbf{Approach} & \textbf{Scope and abstraction} & \textbf{Validation or evidence boundary} & \textbf{Relation to this work} \\
+\midrule
+Mininet \cite{lantz2010network} & Rapid prototyping, especially of SDN networks, through programmatic topologies and host/switch configuration & Experiment-specific correctness checks remain the responsibility of the experimenter & Alternative emulation approach; not the selected output target \\
+Kathar\'a \cite{bonofiglio2018kathara,scazzariello2020kathara} & Container-based execution from laboratory files, startup scripts, and node resources & Consumes and executes its own laboratory representation & Runtime and file format used by the developed framework \\
+LLM-based network configuration \cite{wang2024netconfeval,lira2025llmnetcfg,liu2025llmnetworking} & Translation of natural-language intent and assistance with operational tasks & Generated output remains candidate configuration requiring technical verification & Optional upstream authoring and diagnostic support \\
+This thesis & Validated generation and repeatable evaluation from declarative YAML & Structural and semantic checks precede generation; runtime measurements test observable behaviour & Integration of source configuration, standard artefacts, lifecycle, and evidence \\
+\bottomrule
+\end{tabular}
+\caption{Positioning of the developed framework relative to the main related approaches. The rows describe complementary scopes rather than a performance ranking.}
+\label{tab:related-work-positioning}
+\end{table}
+
+The distinction in Table~\ref{tab:related-work-positioning} also limits the
+claims of the thesis. The work does not compare emulator throughput, evaluate
+LLM accuracy, or propose an alternative routing implementation. It evaluates
+whether a narrow, explicit configuration model can coordinate existing tools,
+reject recognised inconsistencies before generation, and support a controlled
+experiment through a repeatable workflow.
+
+\section{Chapter Summary}
+\label{sec:chapter1-summary}
+
+This chapter introduced the execution model and technologies used by the
+framework. Container-based emulation provides isolated Linux network nodes,
+Docker supplies the runtime, and Kathar\'a creates the topology from standard
+laboratory files. YAML provides a declarative source representation,
+FRRouting supplies dynamic routing, and Wireshark provides optional packet
+inspection.
+
+The chapter also established the distinction between source configuration and
+generated artefacts. This distinction is central to the design of the system.
+The next chapter translates the technological context into explicit
+requirements, responsibilities, and architectural components.

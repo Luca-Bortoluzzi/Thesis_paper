@@ -1,0 +1,520 @@
+% !TeX program = pdflatex
+\documentclass[a4paper,10pt,titlepage,twoside]{book}
+
+% ==================================================
+% UNITO thesis layout - Overleaf compatible version
+% Main compiler: pdfLaTeX
+% The original UNITO template uses fontspec/Tahoma and therefore may require
+% LuaLaTeX. This version preserves the same title-page layout while compiling
+% safely with the default Overleaf compiler.
+% ==================================================
+
+\usepackage[english]{babel}
+\usepackage{iftex}
+
+\ifPDFTeX
+    \usepackage[T1]{fontenc}
+    \usepackage[utf8]{inputenc}
+    \usepackage{lmodern}
+    \usepackage[scaled=0.95]{helvet}
+    \newcommand{\CoverFont}{\sffamily}
+\else
+    \usepackage{fontspec}
+    \IfFontExistsTF{Tahoma}{
+        \newfontfamily\CoverFont[
+            Scale=1,
+            Ligatures=TeX,
+            BoldFont={Tahoma Bold}
+        ]{Tahoma}
+    }{
+        \newfontfamily\CoverFont[
+            Scale=1,
+            Ligatures=TeX
+        ]{TeX Gyre Heros}
+    }
+\fi
+
+\usepackage{xcolor}
+\usepackage{graphicx}
+\usepackage{array}
+\usepackage{amsmath}
+\usepackage{amsfonts}
+\usepackage{amssymb}
+\usepackage{amsthm}
+\usepackage{tikz}
+\usetikzlibrary{arrows.meta,positioning,shapes.geometric}
+\usepackage{enumerate}
+\usepackage{geometry}
+\geometry{
+    a4paper,
+    top=3cm,
+    bottom=3cm,
+    left=3.5cm,
+    right=3.5cm,
+    heightrounded,
+    bindingoffset=5mm
+}
+\usepackage{booktabs}
+\usepackage{longtable}
+\usepackage{listings}
+\usepackage{emptypage}
+\usepackage{indentfirst}
+\usepackage{setspace}
+\usepackage{microtype}
+\singlespacing
+\setlength{\parindent}{24pt}
+\setlength{\emergencystretch}{2em}
+
+\usepackage{xurl}
+\usepackage[colorlinks=true,linkcolor=black,citecolor=black,urlcolor=blue]{hyperref}
+\usepackage[nameinlink,noabbrev]{cleveref}
+\usepackage[absolute]{textpos}
+
+\numberwithin{equation}{chapter}
+\renewcommand{\theequation}{\thechapter.\arabic{equation}}
+
+% ==================================================
+% Theorem-like environments retained from the UNITO template.
+% They are available if needed in later chapters.
+% ==================================================
+\theoremstyle{plain}
+\newtheorem{thm}{Theorem}[chapter]
+\newtheorem{lem}[thm]{Lemma}
+\newtheorem{cor}[thm]{Corollary}
+\newtheorem{prop}[thm]{Proposition}
+
+\theoremstyle{definition}
+\newtheorem{defn}[thm]{Definition}
+\newtheorem{ex}[thm]{Example}
+\newtheorem{rmk}[thm]{Remark}
+\newtheorem{notn}[thm]{Notation}
+
+% ==================================================
+% Source-code formatting
+% ==================================================
+\definecolor{codebackground}{RGB}{246,246,246}
+\definecolor{codeframe}{RGB}{190,190,190}
+\definecolor{codekeyword}{RGB}{30,70,150}
+\definecolor{codecomment}{RGB}{60,115,60}
+
+\lstdefinestyle{thesiscode}{
+    backgroundcolor=\color{codebackground},
+    frame=single,
+    rulecolor=\color{codeframe},
+    basicstyle=\ttfamily\small,
+    keywordstyle=\color{codekeyword}\bfseries,
+    commentstyle=\color{codecomment},
+    numbers=left,
+    numberstyle=\tiny,
+    numbersep=8pt,
+    breaklines=true,
+    showstringspaces=false,
+    tabsize=4,
+    captionpos=b
+}
+\lstset{style=thesiscode}
+
+% Inline long command-line options. Splitting the two leading hyphens prevents
+% TeX from turning them into an en dash in ordinary text.
+\newcommand{\cliopt}[1]{\texttt{-{}-#1}}
+
+% ==================================================
+% Thesis metadata
+% Complete the fields marked with square brackets before submission.
+% ==================================================
+\newcommand{\UniversityName}{University of Turin}
+\newcommand{\DegreeCourse}{Bachelor's Degree Program in Computer Science}
+\newcommand{\ThesisTitleLineOne}{Design and Implementation of a}
+\newcommand{\ThesisTitleLineTwo}{Simple Kathar\'a-Based Framework for}
+\newcommand{\ThesisTitleLineThree}{Network Emulation and Testing}
+\newcommand{\ThesisSubtitle}{Automated Topology Generation, Connectivity Validation and Denial-of-Service Experimentation}
+
+\newcommand{\SupervisorName}{Prof.\ Gianluca Rizzo}
+\newcommand{\CoSupervisorName}{[Name e Surname]}
+\newcommand{\CandidateName}{Luca Bortoluzzi}
+\newcommand{\StudentNumber}{Student ID: 1097723}
+\newcommand{\AcademicYear}{2025/2026}
+
+% Change to \ShowCoSupervisortrue if the final thesis has a co-supervisor.
+\newif\ifShowCoSupervisor
+\ShowCoSupervisorfalse
+
+\begin{document}
+\hypersetup{pageanchor=false}
+
+% ==================================================
+% Official-style UNITO title page
+% ==================================================
+\pagenumbering{gobble}
+\thispagestyle{empty}
+
+\begingroup
+\CoverFont
+
+\begin{textblock*}{4cm}(8.65cm,1.03cm)
+    \centerline{\includegraphics[width=3.67cm]{LogoUniToConvertito.png}}
+\end{textblock*}
+
+\begin{textblock*}{21cm}(0cm,8.98cm)
+    \fontsize{18}{22}\selectfont
+    \centerline{\textbf{\UniversityName}}
+\end{textblock*}
+
+\begin{textblock*}{21cm}(0cm,9.97cm)
+    \fontsize{18}{22}\selectfont
+    \centerline{\textit{\DegreeCourse}}
+\end{textblock*}
+
+\begin{textblock*}{19cm}(1cm,12.85cm)
+    \fontsize{20}{24}\selectfont
+    \centering
+    \textbf{\ThesisTitleLineOne}\\
+    \textbf{\ThesisTitleLineTwo}\\
+    \textbf{\ThesisTitleLineThree}
+\end{textblock*}
+
+\begin{textblock*}{19cm}(1cm,15.58cm)
+    \fontsize{15}{19}\selectfont
+    \centering
+    \textit{\ThesisSubtitle}
+\end{textblock*}
+
+\begin{textblock*}{21cm}(0cm,17.15cm)
+    \fontsize{18}{22}\selectfont
+    \centerline{\Large Bachelor's Thesis}
+\end{textblock*}
+
+\fontsize{14}{17}\selectfont
+
+\begin{textblock*}{8cm}(3.04cm,18.60cm)
+    \noindent
+    \textbf{Supervisor}
+\end{textblock*}
+\begin{textblock*}{8cm}(3.04cm,19.19cm)
+    \noindent
+    \SupervisorName
+\end{textblock*}
+
+\ifShowCoSupervisor
+    \begin{textblock*}{8cm}(3.04cm,20.64cm)
+        \noindent
+        \textbf{Correlatore/Correlatrice}
+    \end{textblock*}
+    \begin{textblock*}{8cm}(3.04cm,21.23cm)
+        \noindent
+        \CoSupervisorName
+    \end{textblock*}
+\fi
+
+\begin{textblock*}{8cm}(12.33cm,22.95cm)
+    \noindent
+    \textbf{Candidate}
+\end{textblock*}
+\begin{textblock*}{8cm}(12.33cm,23.55cm)
+    \noindent
+    \textbf{\CandidateName}
+\end{textblock*}
+\begin{textblock*}{8cm}(12.33cm,24.14cm)
+    \noindent
+    \StudentNumber
+\end{textblock*}
+
+\begin{textblock*}{21cm}(0cm,27.34cm)
+    \centerline{Academic Year \AcademicYear}
+\end{textblock*}
+
+\endgroup
+
+\clearpage
+\thispagestyle{empty}
+\null
+\clearpage
+
+\TPoptions{absolute=false}
+\pagestyle{plain}
+\hypersetup{pageanchor=true}
+
+% ==================================================
+% Front matter
+% ==================================================
+\frontmatter
+\pagenumbering{roman}
+
+\chapter*{Declaration}
+\phantomsection
+\addcontentsline{toc}{chapter}{Declaration}
+
+I declare to be responsible for the content I'm presenting in order to obtain
+the final degree, not to have plagiarized in all or part of the work produced
+by others, and to have cited original sources in a manner consistent with
+current plagiarism regulations and copyright. I am also aware that, in case
+of a false declaration, I could incur legal penalties and my admission to the
+final exam could be denied.
+
+\chapter*{Abstract}
+\phantomsection
+\addcontentsline{toc}{chapter}{Abstract}
+
+Network laboratories are widely used to study routing, service deployment,
+traffic analysis, and cybersecurity. Nevertheless, the manual preparation of
+a network-emulation environment often requires several configuration files,
+repeated commands, and careful coordination among topology, addressing,
+routing, and application services. This thesis presents the design and
+implementation of a lightweight Python-based framework built on top of
+Kathar\'a. The framework allows a network laboratory to be described through a
+structured YAML configuration containing nodes, interfaces, collision domains,
+IP addresses, gateways, static routes, routing protocols, and optional
+services. Starting from this declarative description, the system validates the
+input and automatically generates the files required to deploy the
+corresponding Kathar\'a laboratory. The project also includes an automated
+validation component. Legitimate clients execute concurrent TCP connection
+tests against a target service, while the framework records the result and the
+elapsed time of every request in structured CSV files and execution logs. The
+same procedure is applied to a baseline scenario and to a controlled
+Denial-of-Service simulation executed inside an isolated laboratory. The
+objective is not to replace Kathar\'a, but to provide a simple abstraction and
+orchestration layer that reduces repetitive configuration tasks and supports
+repeatable experiments. The resulting workflow integrates topology generation,
+routing configuration, service deployment, traffic inspection, connectivity
+testing, and the comparison of network behaviour under normal and adverse
+conditions.
+
+\bigskip
+\noindent\textbf{Keywords:}
+network emulation; Kathar\'a; Docker; YAML; FRRouting; automated testing;
+Wireshark; denial of service; large language models.
+
+\tableofcontents
+
+\chapter*{Introduction}
+\phantomsection
+\addcontentsline{toc}{chapter}{Introduction}
+\label{chap:introduction}
+
+Computer networks are increasingly complex systems composed of heterogeneous
+devices, protocols, and services. Even a limited experimental scenario can
+include several end hosts, multiple routers, dynamic routing, a demilitarised
+zone, traffic-monitoring tools, and one or more application services. Creating
+such an environment requires not only a logical topology, but also a coherent
+set of executable configurations.
+
+Experimentation on physical hardware is not always practical. Dedicated
+devices may be expensive or unavailable, while changes to existing equipment
+may interfere with operational networks. Physical laboratories can also be
+difficult to reproduce exactly. Network emulation addresses these limitations
+by creating isolated environments in which real networking software can be
+executed without requiring a separate physical device for every node
+\cite{lantz2010network}.
+
+Kathar\'a is an open-source, container-based network emulation system intended
+for teaching, research, sandbox testing, and protocol development
+\cite{kathara_website,scazzariello2020kathara,bonofiglio2018kathara}. It represents network devices as
+containers and connects their virtual interfaces through Layer 2 collision
+domains. This approach makes it possible to reproduce multi-node network
+scenarios on a single workstation while retaining access to real protocol
+stacks and routing software.
+
+Although Kathar\'a reduces the infrastructure required for network
+experiments, the creation of a laboratory still involves several files and
+repetitive operations. The user must normally define the topology, prepare
+startup files, assign addresses, configure gateways and routes, initialise
+routing daemons, copy application scripts, and verify that the generated
+environment behaves as expected.
+
+These tasks become increasingly difficult to coordinate as the topology grows.
+The same information may appear in several artefacts, and a modification to
+one file may not be reflected in the others. A laboratory can also start
+without immediately revealing an incorrect route, an inactive application
+service, or an inconsistent address.
+
+This thesis presents a framework that introduces a declarative configuration
+layer above Kathar\'a. A network laboratory is described through a YAML file,
+which is parsed and validated before the required Kathar\'a files are
+generated. The framework supports several node roles, interface and gateway
+configuration, static and dynamic routing, application services, optional
+traffic inspection, and custom node commands.
+
+The work also addresses functional validation. A dedicated testing component
+discovers legitimate clients and performs simultaneous TCP connection attempts
+against a selected service. Each attempt is classified according to the
+application response and is recorded together with its elapsed time. The
+results are stored in a form that can be aggregated and compared.
+
+The framework is finally used to execute two phases across two related service
+architectures. Each architecture is measured first under baseline conditions
+and then while attacker-controlled nodes generate a bounded
+Denial-of-Service workload. The first topology exposes the application server
+directly; the second places a rate-limiting reverse proxy in front of a private
+backend. Reusing the same client-side measurement procedure makes it possible
+to observe both the effect of the additional workload and the outcome of the
+mitigation in the tested configuration.
+
+The implemented system was not obtained from a completely fixed specification
+in a single development step. The project followed an iterative and incremental
+software-development lifecycle. A further practical question arises from the
+current use of LLM-based assistants in programming and network configuration:
+which parts of the workflow can be delegated to a general-purpose LLM, and
+which parts still benefit from an explicit domain-specific validator and
+generator? This question is addressed explicitly in
+\Cref{sec:llm-role} and revisited as a future integration direction in
+\Cref{sec:future-llm-integration}. The development lifecycle began with the
+narrower objective of reducing the repetitive preparation of Kathar\'a
+laboratories and progressively acquired
+new requirements as generated topologies were executed and inspected. Problems
+observed during these iterations motivated the introduction of semantic
+validation, richer routing support, optional diagnostic components, explicit
+lifecycle management, application-level connectivity checks, concurrent
+measurements, and finally robustness and scalability evaluation. The thesis
+therefore discusses not only the final implementation, but also the reasons for
+important design choices, the alternatives they replaced, and the limitations
+revealed during verification.
+
+\section*{Objectives}
+\phantomsection
+\addcontentsline{toc}{section}{Objectives}
+
+The principal objectives of the work are:
+
+\begin{itemize}
+    \item to define a readable declarative format for network laboratories;
+    \item to validate the configuration before generating deployment files;
+    \item to automate the generation of Kathar\'a topology and startup files;
+    \item to generate FRRouting configurations for supported routing
+    protocols;
+    \item to integrate optional packet inspection with Wireshark;
+    \item to support deployment of node-specific application resources and
+    startup commands;
+    \item to execute concurrent application-level connectivity tests;
+    \item to store reproducible, machine-readable experimental results;
+    \item to compare normal service behaviour with behaviour under a
+    controlled Denial-of-Service workload and evaluate a reverse-proxy
+    mitigation using the same measurement procedure;
+    \item to assess the role of the framework in an LLM-assisted network
+    experimentation workflow and identify which responsibilities should remain
+    deterministic and explicitly verifiable.
+\end{itemize}
+
+\section*{Research Questions}
+\phantomsection
+\addcontentsline{toc}{section}{Research Questions}
+
+The thesis is guided by the following questions:
+
+\begin{description}
+    \item[RQ1] How can a declarative topology description be translated into
+    the files and directories required by Kathar\'a?
+
+    \item[RQ2] How can the generated laboratory automatically include
+    addressing and routing configuration, deploy node-specific application
+    resources and startup commands, and attach monitoring components?
+
+    \item[RQ3] How can end-to-end service availability and application
+    response time be measured repeatedly from several legitimate clients?
+
+    \item[RQ4] Can the same workflow support a controlled comparison between
+    baseline and Denial-of-Service conditions, and can it evaluate a
+    reverse-proxy mitigation without changing the client measurement method?
+
+    \item[RQ5] What additional value does a deterministic validation and
+    generation framework provide when LLMs can already assist with network
+    configuration, and how can the two approaches be combined in a practical
+    experimentation workflow?
+\end{description}
+
+RQ1--RQ4 are answered through implementation evidence and experimental
+evaluation. RQ5 is a design and discussion question addressed through
+architectural analysis and comparison with the literature; this thesis does
+not claim an empirical benchmark of LLM-generated configurations.
+
+\section*{Thesis Structure}
+\phantomsection
+\addcontentsline{toc}{section}{Thesis Structure}
+
+\Cref{chap:background} introduces network emulation and the supporting
+technologies. \Cref{chap:requirements-architecture} defines the requirements,
+reconstructs the development lifecycle of the project, presents the final
+system architecture, and positions the framework relative to LLM-assisted
+configuration. \Cref{chap:configuration-validation} describes the YAML model
+and validation subsystem, including the implementation choices that emerged as
+the configuration language evolved. The following chapters present laboratory
+generation and lifecycle management, the experimental scenarios and results,
+robustness and scalability evaluation, possible future developments---including
+an LLM-assisted configuration front end---and the conclusions of the work.
+
+% ==================================================
+% Main matter
+% ==================================================
+\mainmatter
+
+\input{chapters/chapter1_background}
+
+\input{chapters/chapter2_requirements_architecture}
+
+\input{chapters/chapter3_configuration_validation}
+
+\input{chapters/chapter4_laboratory_generation}
+
+\input{chapters/chapter5_experimental_evaluation}
+
+\input{chapters/chapter6_robustness_security_scalability}
+
+\input{chapters/chapter7_future_developments}
+
+\input{chapters/chapter8_conclusions}
+
+% Chapters 4 and following will be added here.
+
+\chapter*{Acknowledgements}
+\phantomsection
+\addcontentsline{toc}{chapter}{Acknowledgements}
+
+I would first like to thank my supervisor, \textbf{Prof. Gianluca Rizzo}, for his guidance,
+availability, and valuable feedback throughout the development of this thesis. His
+suggestions helped me improve both the technical aspects of the project and the way in
+which the development process, design decisions, and experimental results were presented
+and analysed.
+
+\medskip
+
+A special thank you goes to \textbf{my family}, for their constant support throughout my
+university studies and for always encouraging me, especially during the most demanding
+periods.
+
+\medskip
+
+I would also like to thank \textbf{all my friends} for their support, for the time spent
+together and for creating moments that made this journey an unforgettable experience.
+
+\medskip
+
+Among them, I would like to give special thanks to \textbf{Federico De Stefani,
+Alessandro Abate, and Federico Rovei}, my closest friends. They are the people I know I
+can always count on, especially during the most difficult moments of my life. Their
+friendship has played an important role in helping me grow, change, and mature over the
+years.
+
+\medskip
+
+I would also like to thank \textbf{Zoe Orlandi} for her constant support,
+understanding, and valued friendship throughout this period.
+
+\medskip
+
+Finally, I thank my \textbf{fellow students} for their companionship and
+collaboration throughout my studies. Their help before examinations and during
+project work made the most demanding periods easier to face.
+
+% ==================================================
+% References
+% ==================================================
+\cleardoublepage
+\phantomsection
+\addcontentsline{toc}{chapter}{References}
+
+\renewcommand{\bibname}{References}
+\bibliographystyle{plain}
+\bibliography{references}
+
+\cleardoublepage
+
+\end{document}

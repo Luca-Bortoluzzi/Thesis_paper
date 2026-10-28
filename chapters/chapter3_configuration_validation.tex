@@ -1,0 +1,733 @@
+\chapter{Configuration Model and Validation}
+\label{chap:configuration-validation}
+
+This chapter describes the configuration layer of the framework, that is, the
+representation used to describe a network laboratory before any Kathar\'a file
+is generated. The framework adopts YAML as a declarative source format
+\cite{yaml122} and separates the description of the desired topology from the
+commands required to realise it. A single configuration can therefore contain the laboratory
+identity, nodes, interfaces, IP addressing, static routes, optional startup
+commands, and dynamic-routing parameters. The same source is then reused both
+for validation and, after validation has succeeded, for generation.
+
+The implementation discussed here is contained mainly in
+\texttt{src\_gen\_lab/Lexer.py} and \texttt{src\_gen\_lab/Parser.py}. The
+historical filenames are retained in the repository, although their practical
+responsibilities are closer to configuration loading and validation than to a
+traditional compiler front end. The YAML document is loaded as nested Python
+dictionaries and lists; the framework does not construct a separate domain
+class for every node, interface, or routing protocol. Consequently, the
+accepted model is defined by the fields interpreted by the generator and by
+the structural and semantic checks implemented by the parser.
+
+The chapter stops at the validated configuration. The creation of
+\texttt{lab.conf}, startup files, FRRouting files, optional monitoring
+components, and the laboratory lifecycle are discussed in the following
+chapter.
+
+\section{Configuration Model and Supported Operations}
+\label{sec:configuration-model-purpose}
+
+A configuration can be selected either by passing an explicit YAML path or by
+passing only its short name. The function \texttt{resolve\_config\_path()} first
+checks whether the supplied argument already identifies an existing file. If
+it does not, the function searches the configured directory, which defaults to
+\texttt{configs/}, and tries the extensions \texttt{.yml} and \texttt{.yaml}.
+This permits both forms shown in Listing~\ref{lst:config-resolution}.
+
+\begin{lstlisting}[language=bash,caption={Equivalent ways of selecting a configuration.},label={lst:config-resolution}]
+python3 generate_lab.py configs/client-router-server.yml
+python3 generate_lab.py client-router-server
+\end{lstlisting}
+
+Once the path has been resolved, \texttt{load\_yaml()} opens the file using
+UTF-8 encoding and calls \texttt{yaml.safe\_load()}, following the safe-loading
+mechanism documented by PyYAML \cite{pyyaml_docs}. Safe loading is important
+for a configuration file because it avoids the general object-construction
+behaviour associated with unsafe YAML loading. The loader also checks that the top-level value is a
+Python dictionary; an empty value, scalar, or list is rejected before the
+network-specific validation begins. If PyYAML is unavailable, the loader
+reports the missing dependency explicitly.
+
+Every laboratory configuration must contain at least \texttt{lab\_name} and
+\texttt{nodes}. The remaining fields are optional and are included only when
+the corresponding behaviour is needed. A compact top-level example is shown
+in Listing~\ref{lst:top-level-yaml}.
+
+\begin{lstlisting}[caption={General top-level structure of a laboratory configuration.},label={lst:top-level-yaml}]
+lab_name: example_lab
+description: Example routed laboratory
+
+metadata:
+  description: "Example generated with the framework"
+  version: 2.0
+  author: "Luca-Bortoluzzi"
+  email: "luca.bortoluzzi921@edu.unito.it"
+  web: "http://www.kathara.org/"
+
+nodes:
+  # node declarations
+\end{lstlisting}
+
+The \texttt{lab\_name} value identifies the generated laboratory and becomes
+the directory name under the selected output directory. The optional
+\texttt{description} and \texttt{metadata} mapping do not affect forwarding or
+addressing. They provide descriptive values later written to
+\texttt{lab.conf}; when a metadata field is omitted, the generator uses a
+fallback. The \texttt{nodes} field is a non-empty mapping in which each key is
+a node name and each value is the corresponding node declaration. Node names
+and collision-domain names must satisfy the same identifier rule:
+
+\begin{lstlisting}[caption={Identifier pattern accepted for nodes and collision domains.},label={lst:name-pattern}]
+^[A-Za-z0-9][A-Za-z0-9_.-]*$
+\end{lstlisting}
+
+Therefore, letters, digits, dots, underscores, and hyphens are accepted, while
+spaces and identifiers beginning with an invalid character are rejected. The
+node name is not only descriptive: it is reused in generated filenames,
+\texttt{lab.conf}, and, when node resources are imported, in the matching node
+directory.
+
+Listing~\ref{lst:annotated-node-reference} shows a representative router and
+annotates the principal fields. The example deliberately combines several
+features in one declaration; a normal node generally uses only the subset that
+is relevant to its role.
+
+\begin{lstlisting}[caption={Annotated node configuration reference.},label={lst:annotated-node-reference}]
+nodes:
+  r1:                              # node name
+    type: router                   # host | router | switch | firewall
+    image: kathara/frr             # optional image override
+    forwarding: true               # forwarding-consistency declaration
+
+    interfaces:                    # ordered list: first entry -> eth0
+      - network: lan_a             # collision-domain name
+        ip: 10.10.1.1/24           # address in CIDR notation
+        ospf_area: 10              # optional OSPF area
+
+      - network: r1_r2             # second entry -> eth1
+        ip: 10.0.12.1/30
+        rip: true                  # optional RIP marker
+
+    default_gateway: 10.10.1.254   # optional default-route next hop
+
+    routes:                        # optional static routes
+      - to: 192.168.20.0/24
+        via: 10.0.12.2
+
+    commands:                      # optional startup commands
+      - sysctl -w net.ipv4.ip_forward=1
+      - echo "r1 initialised"
+
+    frr:                           # optional FRRouting configuration
+      enabled: true
+      protocols: [ospf, bgp]
+      router_id: 1.1.1.1
+
+      ospf:
+        areas:
+          - id: 10
+            type: stub
+            no_summary: false
+        redistribute: [bgp]
+
+      bgp:
+        asn: 65001
+        networks:
+          - 10.10.1.0/24
+        neighbors:
+          - ip: 10.0.12.2
+            remote_as: 65002
+        redistribute: [ospf]
+        ebgp_requires_policy: false
+        network_import_check: false
+\end{lstlisting}
+
+Table~\ref{tab:supported-configuration-operations} is the operational reference
+for node configuration. Each row corresponds to one operation that the user
+can express in YAML and states what the framework does with it. Related nested
+fields are grouped in the same row so that the complete model remains readable
+without turning each property into a separate subsection.
+
+{\small
+\begin{longtable}{>{\raggedright\arraybackslash}p{0.20\textwidth}>{\raggedright\arraybackslash}p{0.24\textwidth}>{\raggedright\arraybackslash}p{0.44\textwidth}}
+\caption{Supported configuration operations and their effect.}
+\label{tab:supported-configuration-operations}\\
+\toprule
+\textbf{Operation} & \textbf{YAML field or syntax} & \textbf{Effect in the framework} \\
+\midrule
+\endfirsthead
+\toprule
+\textbf{Operation} & \textbf{YAML field or syntax} & \textbf{Effect in the framework} \\
+\midrule
+\endhead
+Identify the laboratory & \texttt{lab\_name} & Mandatory top-level value. It identifies the laboratory and is later used as the generated directory name. \\
+\\
+Add descriptive metadata & \texttt{description}, \path{metadata.description}, \path{metadata.version}, \path{metadata.author}, \path{metadata.email}, \path{metadata.web} & Adds human-readable information that is later transferred to \texttt{lab.conf}. These values do not change the topology or routing behaviour. \\
+\\
+Create and name a node & \path{nodes.<name>} & Creates the node identifier. The name is reused in Kathar\'a declarations, startup filenames, and optional node resource directories. \\
+Select the node role and image & \texttt{type}, \texttt{image} & \texttt{type} accepts \texttt{host}, \texttt{router}, \texttt{switch}, or \texttt{firewall}; omitted types are treated as hosts. \texttt{image} overrides automatic Docker-image selection. Ordinary hosts default to \texttt{kathara/base}; router, switch, and firewall nodes are treated as FRR-capable and default to \texttt{kathara/frr}. \\
+\\
+Declare forwarding intent & \texttt{forwarding} & Provides a role-consistency declaration. A router explicitly configured with \texttt{forwarding: false} is rejected by semantic validation. The field does not itself generate a kernel \texttt{sysctl} command. \\
+\\
+Create interfaces & \texttt{interfaces} & Mandatory non-empty ordered list. Entry zero becomes \texttt{eth0}, entry one becomes \texttt{eth1}, and so on. This ordering is later reused both in \texttt{lab.conf} and startup generation. \\
+\\
+Connect an interface to a network & \path{interfaces[].network} & Mandatory for every interface. The value is the Kathar\'a collision-domain name. Interfaces on different nodes using the same value belong to the same Layer~2 segment. \\
+\\
+Assign an interface address & \path{interfaces[].ip} & Optional IPv4 or IPv6 interface in CIDR notation. During generation it becomes an \texttt{ip address add ... dev ethN} command. An interface can remain unnumbered when only Layer~2 attachment is required. \\
+\\
+Mark interfaces for dynamic routing & \path{interfaces[].ospf_area}, \path{interfaces[].rip} & \texttt{ospf\_area} associates the interface network with an OSPF area and requires an address. \texttt{rip: true} marks the interface network for RIP; if no interface is marked, RIP generation can fall back to all addressed interfaces. \\
+\\
+Configure a default route & \texttt{default\_gateway} & Optional next-hop address. During generation it becomes \texttt{ip route add default via ...}. Semantic validation requires the gateway to belong to one of the node's directly connected subnets. \\
+\\
+Configure static routes & \texttt{routes}, \path{routes[].to}, \path{routes[].via} & Adds explicit routes to the startup file. Each mapping states a destination prefix in \texttt{to} and a next hop in \texttt{via}. The current parser does not perform the same depth of semantic analysis on arbitrary static routes as it does on interfaces and gateways. \\
+\\
+Append custom startup commands & \texttt{commands} & Appends the supplied strings to the startup file in declaration order. This is the generic escape mechanism for kernel settings, service startup, file manipulation, or other operations not represented by dedicated YAML fields. Arbitrary command semantics are not generally validated. \\
+\\
+Activate FRRouting and select protocols & \texttt{frr}, \texttt{frr.enabled}, \texttt{frr.protocol}, \texttt{frr.protocols}, \texttt{frr.daemons} & Declares FRRouting behaviour. A single protocol can be selected with \texttt{protocol}; multiple protocols can be listed or configured through \texttt{protocols}; daemon flags can also imply OSPF, RIP, or BGP. The supported protocols are OSPF, RIP, and BGP. \\
+\\
+Assign routing identifiers & \texttt{frr.router\_id}, \path{frr.ospf.router_id}, \path{frr.bgp.router_id} & Sets a common router ID or a protocol-specific override. Router IDs are parsed as IPv4 addresses and must be unique across the effective declarations checked by the validator. \\
+\\
+Configure OSPF & \texttt{frr.area}, \path{frr.ospf.networks}, \path{frr.ospf.areas}, \path{frr.ospf.areas[].id}, \path{frr.ospf.areas[].type}, \path{frr.ospf.areas[].no_summary}, \path{frr.ospf.areas[].totally_stub}, \path{frr.ospf.redistribute} & Supports the legacy common-area form, interface-level areas, explicit networks, stub or NSSA area declarations, optional no-summary behaviour, and redistribution. If interface-level \texttt{ospf\_area} markers exist, they determine the generated network-area pairs; otherwise the generator falls back to the common area and FRR network list. \\
+\\
+Configure RIP & \path{frr.rip.version}, \path{frr.rip.networks}, \path{frr.rip.auto_summary}, \path{frr.rip.redistribute} & Selects the RIP version, network statements, automatic summarisation behaviour, and redistribution. When no explicit network list is supplied, the generator uses RIP-marked interfaces or, as a fallback, all addressed interfaces. \\
+\\
+Configure BGP & \path{frr.bgp.asn}, \path{frr.bgp.router_id}, \path{frr.bgp.networks}, \path{frr.bgp.neighbors}, \path{neighbors[].ip}, \path{neighbors[].remote_as}, \path{frr.bgp.redistribute}, \path{frr.bgp.ebgp_requires_policy}, \path{frr.bgp.network_import_check} & Defines the local AS, router ID, announced prefixes, peers and their remote AS values, redistribution, and the FRRouting eBGP-policy and network-import switches. The ASN must be in the range 1--4294967295. Peer addresses and remote AS values are checked against nodes declared in the same laboratory. \\
+\\
+Provide a complete FRR configuration & \texttt{frr.config} & Replaces automatic protocol-block generation with user-supplied FRRouting text written directly to \texttt{frr.conf}. It is intended for advanced configurations that exceed the declarative model. \\
+\bottomrule
+\end{longtable}
+}
+
+The node types share this common syntax; the framework does not define a
+separate YAML language for hosts, routers, switches, and firewalls. Their
+practical differences derive mainly from validation expectations and automatic
+image selection. A host normally contains one or more interfaces, an optional
+default gateway, and possibly startup commands. A router normally contains at
+least two addressed interfaces and either static routes or an FRRouting
+configuration. In the current implementation, \texttt{switch} is only a role
+label used by validation and image selection: it does not create a Linux
+bridge, Open vSwitch instance, or any other Layer~2 forwarding function.
+Kathar\'a's \texttt{device[n]} syntax only attaches \texttt{ethn} to the named
+collision domain \cite{kathara_labconf_manpage}; consequently, two interfaces
+on a node do not by themselves join two collision domains. A functioning
+Layer~2 switch requires explicit bridge or Open vSwitch configuration, for
+example through imported resources and startup commands or a suitable image
+such as \texttt{kathara/openvswitch} \cite{kathara_images_repo}. A firewall
+uses the same interface model and currently relies on generic commands or
+imported resources for policy-specific behaviour because the YAML model does
+not define a dedicated firewall-policy language.
+
+The \texttt{image} field allows these defaults to be overridden. If it is
+absent, ordinary hosts use \texttt{kathara/base}; nodes whose type is
+\texttt{router}, \texttt{switch}, or \texttt{firewall} are considered
+FRR-capable and use \texttt{kathara/frr}. A host can also become FRR-capable by
+providing an FRR declaration. One implementation detail deserves attention:
+for router, switch, and firewall types the device type itself is sufficient to
+select the FRR execution path. Therefore, \texttt{frr.enabled} should not be
+interpreted as a universal switch that disables FRR for every node type; its
+behaviour is most meaningful for a host whose FRR capability comes from the
+\texttt{frr} section. This is one of the implementation details that a future
+revision could make more uniform.
+
+Interfaces are the core of the topology model. Each node must contain a
+non-empty \texttt{interfaces} list and every interface must have a
+\texttt{network} field. The network name represents a Kathar\'a collision
+domain, while the optional \texttt{ip} field assigns an IPv4 or IPv6 address in
+CIDR notation. List order is operational: the first interface becomes
+\texttt{eth0}, the second \texttt{eth1}, and so forth. The same order is later
+used when the generator creates \texttt{lab.conf} and node startup commands.
+Listing~\ref{lst:host-yaml} shows the minimal pattern used by a routed host.
+
+\begin{lstlisting}[caption={Host with one addressed interface and a default gateway.},label={lst:host-yaml}]
+pc_a:
+  type: host
+  interfaces:
+    - network: lan_a
+      ip: 10.10.1.10/24
+  default_gateway: 10.10.1.1
+\end{lstlisting}
+
+An interface may omit its address, which is useful for an unnumbered or
+Layer~2-only attachment. Protocol-specific fields can impose stronger
+requirements: for example, an interface carrying \texttt{ospf\_area} must also
+have an IP address because the generator derives the advertised prefix from
+that address. The optional default gateway is validated as an IP address and
+must fall inside at least one locally connected subnet, which prevents a
+syntactically valid but Layer~2-unreachable gateway from reaching generation.
+Additional routes are declared through \texttt{routes}; every route contains a
+\texttt{to} destination and a \texttt{via} next hop. The generator translates
+these mappings directly into \texttt{ip route add} commands. The current
+validator intentionally devotes more semantic analysis to interfaces,
+subnets, gateways, and dynamic-routing relationships than to arbitrary static
+route policies, so malformed or logically inappropriate custom route content
+is less extensively checked.
+
+The \texttt{commands} list was introduced as a pragmatic escape mechanism for
+behaviour outside the formal model. During development, not every node-specific
+operation justified a new dedicated YAML field: application startup, temporary
+kernel settings, and scenario-specific file operations could otherwise have
+forced the configuration language to grow around individual experiments. Each
+command string is therefore copied to the node startup file in declaration
+order. This choice kept the core model small and allowed specialised scenarios
+to be implemented without blocking on a new parser feature.
+
+The trade-off is that command text is opaque to the general parser, so the
+framework cannot prove its correctness. It performs only limited consistency
+checks, such as detecting an explicit \path{ip_forward=0} setting on a node
+declared as a router. Similarly, \texttt{forwarding: true} is a declaration of
+intent and validation consistency; it does not by itself emit a forwarding
+command. When explicit kernel configuration is required, it must be expressed
+through \texttt{commands} or provided by the selected container environment.
+Chapter~\ref{chap:robustness-security-scalability} later shows why this useful
+development shortcut also creates a trust and robustness boundary.
+
+Dynamic routing was added as the laboratories evolved beyond static
+host--router scenarios. Supporting OSPF, RIP, and BGP required the
+configuration language to represent protocol-specific information that was not
+needed by the first prototypes. The model was therefore extended incrementally
+instead of being replaced by a new syntax. For compatibility with
+configurations developed at different stages of the project, the generator
+accepts several declaration forms. A single protocol can be written as
+\texttt{frr.protocol}; multiple protocols can be placed in a list under
+\texttt{frr.protocols}; \texttt{frr.protocols} can also be a mapping containing
+protocol-specific options; dedicated \texttt{frr.ospf}, \texttt{frr.rip}, and
+\texttt{frr.bgp} mappings are recognised; and daemon flags under
+\texttt{frr.daemons} can imply the corresponding protocol. These forms are
+illustrated in Listing~\ref{lst:frr-declaration-forms}.
+
+\begin{lstlisting}[caption={Compatible FRRouting protocol declaration forms.},label={lst:frr-declaration-forms}]
+# One protocol
+frr:
+  enabled: true
+  protocol: ospf
+
+# Multiple protocols
+frr:
+  protocols: [ospf, bgp]
+
+# Structured multiprotocol form
+frr:
+  protocols:
+    ospf:
+      enabled: true
+      redistribute: [bgp]
+    bgp:
+      enabled: true
+      asn: 65001
+
+# Direct daemon selection retained for compatibility
+frr:
+  daemons:
+    ospfd: true
+    ripd: false
+    bgpd: true
+\end{lstlisting}
+
+Retaining these forms was a deliberate compatibility decision. Requiring an
+immediate migration to one final representation would have invalidated earlier
+test topologies precisely when they were useful for regression testing. The
+cost is a broader parser and some representational redundancy. For a mature
+configuration language, a single versioned schema would be preferable; the
+strict-schema direction discussed in
+Chapter~\ref{chap:robustness-security-scalability} is intended to reduce this
+ambiguity without losing the lessons provided by the earlier files.
+
+OSPF can use a common legacy area declared through \texttt{frr.area}, or each
+interface can carry its own \texttt{ospf\_area}. The latter form is used by the
+multi-area examples because it keeps area membership next to the interface
+whose network will be advertised. When one or more interface area markers are
+present, the generator derives network-area pairs from them. If no such marker
+exists, the generator falls back to the FRR network list and the common area,
+which defaults to area~0. The structured OSPF mapping can also contain
+explicit networks, area declarations, stub and NSSA area types, optional
+\texttt{no\_summary} or \texttt{totally\_stub} flags, and redistribution.
+The underlying OSPFv2 and NSSA concepts are defined in RFC~2328 and RFC~3101
+\cite{rfc2328,rfc3101}.
+Listing~\ref{lst:ospf-yaml} shows a concise multi-area example.
+
+\begin{lstlisting}[caption={Interface-level OSPF area configuration.},label={lst:ospf-yaml}]
+r1:
+  type: router
+  interfaces:
+    - network: lan_a
+      ip: 10.10.1.1/24
+      ospf_area: 10
+    - network: backbone
+      ip: 10.0.12.1/30
+      ospf_area: 0
+  frr:
+    enabled: true
+    protocol: ospf
+    router_id: 1.1.1.1
+\end{lstlisting}
+
+RIP follows the same general model and follows the RIPv2 concepts defined in
+RFC~2453 \cite{rfc2453}. It can be selected through the common
+protocol field or a dedicated \texttt{frr.rip} mapping. The configuration can
+choose the protocol version, control automatic summarisation, provide an
+explicit network list, and request redistribution. Interface-level
+\texttt{rip: true} markers provide a concise way to select the participating
+networks. If no marked interfaces or explicit networks are provided, the
+generator can derive RIP networks from all addressed interfaces.
+
+BGP requires additional relationship information consistent with the BGP-4
+model defined in RFC~4271 \cite{rfc4271}. The local autonomous-system
+number can be written at the common FRR level or inside the BGP mapping; the
+structured value takes precedence. BGP can also define a router ID, announced
+networks, neighbours, redistribution, and two switches used by the generated
+FRRouting configuration: \texttt{ebgp\_requires\_policy} and
+\texttt{network\_import\_check}. The former is directly related to the
+default external-BGP policy behaviour specified by RFC~8212
+\cite{rfc8212}. Each neighbour contains an \texttt{ip} and a
+\texttt{remote\_as}. Listing~\ref{lst:bgp-yaml} shows the compact form used in
+the multi-AS configuration.
+
+\begin{lstlisting}[caption={BGP node declaration.},label={lst:bgp-yaml}]
+r1:
+  type: router
+  interfaces:
+    - network: lan_a
+      ip: 10.10.1.1/24
+    - network: r1_r2
+      ip: 10.0.12.1/30
+  frr:
+    enabled: true
+    protocol: bgp
+    asn: 65001
+    router_id: 1.1.1.1
+    networks:
+      - 10.10.1.0/24
+    neighbors:
+      - ip: 10.0.12.2
+        remote_as: 65002
+\end{lstlisting}
+
+A common or protocol-specific router ID is interpreted as an IPv4 identifier.
+The common value under \texttt{frr.router\_id} is used unless the OSPF or BGP
+section provides its own override. For configurations that cannot be expressed
+conveniently through these fields, \texttt{frr.config} acts as a final escape
+hatch: its complete multiline value replaces automatically generated protocol
+blocks and is written directly to \texttt{frr.conf}. This preserves
+extensibility without requiring the YAML model to represent every FRRouting
+command.
+
+Not every key that may appear in a repository YAML file is part of the core
+generation language. YAML loading preserves unknown mappings because the
+configuration remains an ordinary Python dictionary, but only fields
+explicitly interpreted by the generator have a generation effect. For
+example, a scenario can contain descriptive or auxiliary sections, and some
+example files contain additional information used by separate tools. Such data
+is not automatically converted into Kathar\'a configuration simply because it
+is present in the YAML document. This distinction is important when reading
+the repository: the accepted YAML document can be broader than the core node
+model documented in Table~\ref{tab:supported-configuration-operations}.
+
+\section{Validation Process and Semantic Rules}
+\label{sec:structural-validation}
+
+Validation is divided into two stages because malformed structure and
+network-level inconsistency require different handling. Structural validation
+is implemented by \texttt{validate\_config()} and is intentionally fail-fast.
+It verifies the assumptions that must hold before more detailed analysis can
+run: \texttt{lab\_name} must exist; \texttt{nodes} must exist and be a
+non-empty dictionary; every node declaration must itself be a dictionary;
+every node must contain a non-empty interface list; every interface entry must
+be a dictionary; and every interface must contain \texttt{network}. A
+violation raises \texttt{ValueError} immediately. This prevents a missing
+basic field from producing secondary implementation errors during semantic
+analysis. For example, collision-domain grouping cannot produce a meaningful
+diagnostic if an interface is not a mapping or has no network name.
+
+Semantic validation is implemented by \texttt{validate\_semantics()} and uses a
+different policy: rather than stopping after the first network-level problem,
+it collects all detectable issues in one \texttt{SemanticValidationReport}.
+Each issue is represented by an immutable Python dataclass
+\cite{python_dataclasses}, shown in Listing~\ref{lst:validation-issue}.
+
+\begin{lstlisting}[language=Python,caption={Representation of a semantic validation issue.},label={lst:validation-issue}]
+@dataclass(frozen=True)
+class ValidationIssue:
+    severity: str
+    code: str
+    message: str
+\end{lstlisting}
+
+The severity is \texttt{ERROR} or \texttt{WARN}. The code provides a stable
+machine-oriented category and the message gives the human-readable context.
+The report stores the node, interface, and collision-domain counts, records the
+number of OSPF and BGP nodes, tracks whether resource directories were checked,
+and holds the complete issue list. Computed properties expose the filtered
+errors and warnings and a \texttt{valid} flag. A report is valid when it
+contains no error; warnings do not block generation. This distinction allows
+unusual but potentially intentional topologies to proceed while still drawing
+attention to suspicious choices.
+
+The first semantic rules concern identifiers and node roles. Node names and
+collision-domain names are checked against the regular expression introduced
+in Section~\ref{sec:configuration-model-purpose}. The supported node types are
+\texttt{host}, \texttt{router}, \texttt{switch}, and \texttt{firewall}; any
+other value is an error. Routers receive two additional consistency checks. If
+\texttt{forwarding} is explicitly false, or if the custom command list
+contains a setting equivalent to \path{ip_forward=0}, the declaration is
+rejected because the node role conflicts with its stated forwarding
+behaviour. A router with only one interface is not structurally impossible,
+but it cannot forward between two network segments, so the validator reports a
+warning rather than an error.
+
+Interface addresses are parsed with Python's \texttt{ipaddress.ip\_interface()}
+function \cite{python_ipaddress}. Both IPv4 and IPv6 interface notation are
+accepted by this generic parser. Malformed values generate an error. For IPv4 networks with a prefix
+shorter than \texttt{/31}, assigning the network address or broadcast address
+to an interface is also rejected. Every valid host address is indexed across
+the complete laboratory, allowing duplicate addresses to be reported with all
+owning node-interface pairs. The implemented rule is global: two isolated
+segments are not allowed to reuse the same address, even if they would never
+communicate. This reflects the framework's assumption of one coherent address
+space per laboratory and simplifies subsequent target and topology handling.
+
+Collision domains are then checked as Layer~2 segments. The validator groups
+all endpoints sharing the same \texttt{network} name. If a domain has only one
+endpoint, the condition is reported as a warning because it may be deliberate,
+but it often indicates a misspelled network name or a missing peer. Addressed
+interfaces belonging to the same collision domain are expected to use one
+coherent subnet; if more than one distinct subnet appears on the same domain,
+the configuration is rejected. The validator also compares the subnets used by
+different collision domains and rejects overlapping prefixes. This avoids a
+topology in which separate Layer~2 segments are represented by identical or
+ambiguous Layer~3 address spaces.
+
+The default gateway is checked after interface parsing. The value must be a
+valid IP address and must belong to at least one local interface subnet of the
+same node. A gateway that is syntactically valid but outside all locally
+connected networks is therefore rejected before generation. This rule is
+particularly useful for host declarations, where a wrong gateway can otherwise
+produce a laboratory that starts correctly while being unable to reach any
+remote subnet.
+
+Some additional role-oriented checks exist in the current parser because the
+repository contains auxiliary scenarios built on top of the same node model.
+These checks require an address for certain reserved role naming conventions.
+They are implementation-specific conventions rather than a general property of
+Kathar\'a or of the four node types, and they do not change the generic
+configuration operations documented in this chapter.
+
+FRRouting validation begins by normalising the different compatible protocol
+declaration forms. The helper that collects declared protocols accepts
+\texttt{protocol}, a list or mapping under \texttt{protocols}, the dedicated
+\texttt{ospf}, \texttt{rip}, and \texttt{bgp} mappings, and daemon flags. Any
+protocol outside OSPF, RIP, and BGP is reported as unsupported. The parser also
+requires the \texttt{frr} section, when present and active, to be a dictionary.
+Effective router IDs are collected from the common field and from
+protocol-specific overrides. Each router ID must parse as an IPv4 address, and
+duplicate effective IDs across nodes are rejected.
+
+For OSPF, an interface marked with \texttt{ospf\_area} must contain an IP
+address. Explicit OSPF network values are parsed as prefixes and must overlap at
+least one network directly connected to the node. This detects stale or copied
+network statements that do not correspond to the actual interface addressing.
+The check is deliberately local: it verifies that the node's declaration is
+coherent, but it does not attempt to prove global area connectivity or protocol
+convergence.
+
+For BGP, the local autonomous-system number must be an integer from 1 to
+4294967295. Neighbours must be expressed as a list of mappings. Each neighbour
+IP must be valid, must belong to an interface of a declared node, and cannot
+refer back to the local node itself. The neighbour's \texttt{remote\_as} must
+also be valid and must match the ASN configured on the peer node. If the peer
+has no valid BGP ASN, the relationship is rejected. After these mandatory
+checks, the parser also examines reciprocity: when node A declares an address
+of node B as a neighbour but node B does not declare any address of node A, a
+warning is emitted. Reciprocity is treated as a warning rather than an error
+because an incomplete adjacency may be intentional while a topology is being
+constructed incrementally.
+
+The validator also performs reference-integrity checks for auxiliary
+configuration data stored in the same YAML document. A visible generic example
+is the mapping used for connection tests, named \texttt{connection\_tests} in
+the YAML files. A declared client must refer to an existing node, a target node
+must exist and have an address, and a target IP must be valid and assigned to a
+declared interface. These checks do not execute a test and do not make the
+auxiliary subsystem part of laboratory generation; they merely ensure that
+references embedded in the source configuration remain consistent with the
+topology. Other auxiliary sections can be checked through the same internal
+reference mechanism without altering the node model.
+
+When node-directory import validation is requested, the parser examines
+visible directories beside the selected YAML file. Directories such as
+\path{__pycache__} and hidden entries are excluded. A visible directory whose
+name does not correspond to a declared node is reported as a warning and will
+be skipped by the generator. This policy is useful because the shared
+\texttt{configs/} directory can contain resources for several laboratories at
+the same time; an unrelated resource directory should be reported but should
+not automatically invalidate an otherwise correct topology.
+
+Table~\ref{tab:error-warning-policy} summarises the principal rules. It
+combines the checks described above without introducing a separate subsection
+for every category.
+
+{\small
+\begin{longtable}{>{\raggedright\arraybackslash}p{0.37\textwidth}>{\raggedright\arraybackslash}p{0.12\textwidth}>{\raggedright\arraybackslash}p{0.39\textwidth}}
+\caption{Representative validation rules and their consequences.}
+\label{tab:error-warning-policy}\\
+\toprule
+\textbf{Condition} & \textbf{Severity} & \textbf{Consequence} \\
+\midrule
+\endfirsthead
+\toprule
+\textbf{Condition} & \textbf{Severity} & \textbf{Consequence} \\
+\midrule
+\endhead
+Missing \texttt{lab\_name}, missing or empty \texttt{nodes}, malformed node or interface structure, or missing interface \texttt{network} & Error & Structural validation stops immediately because later analysis cannot operate safely. \\
+Invalid node or collision-domain identifier & Error & Generation is blocked. \\
+Unsupported node type & Error & Generation is blocked. \\
+Malformed interface address & Error & Generation is blocked. \\
+IPv4 network or broadcast address assigned to an ordinary host interface prefix shorter than /31 & Error & Generation is blocked. \\
+Duplicate interface address anywhere in the laboratory & Error & Generation is blocked. \\
+Collision domain with only one endpoint & Warning & Generation may continue; the domain may be deliberately isolated or may contain a naming mistake. \\
+Different subnets used on the same collision domain & Error & Generation is blocked because one Layer~2 segment has inconsistent Layer~3 addressing. \\
+Overlapping subnets used on different collision domains & Error & Generation is blocked because the address model is ambiguous. \\
+Invalid default gateway or gateway outside every local subnet & Error & Generation is blocked. \\
+Router with one interface & Warning & Generation may continue, but the declared router cannot forward between distinct segments. \\
+Router forwarding explicitly disabled & Error & Generation is blocked because the declaration contradicts the router role. \\
+Invalid, duplicated, or unsupported FRRouting declaration & Error & Generation is blocked when the affected routing configuration cannot be considered coherent. \\
+OSPF area marker without an IP address or explicit OSPF network disconnected from every local interface & Error & Generation is blocked. \\
+Invalid BGP ASN, invalid peer address, self-neighbour, missing peer node, or remote-AS mismatch & Error & Generation is blocked. \\
+BGP adjacency declared in only one direction & Warning & Generation may continue while the incomplete or intentionally asymmetric declaration is reviewed. \\
+Auxiliary target or client reference to a missing node or undeclared address & Error & The source configuration is inconsistent and generation is blocked. \\
+Resource directory without a matching node when import checking is enabled & Warning & The directory is reported and skipped; the topology can still be valid. \\
+\bottomrule
+\end{longtable}
+}
+
+A valid report can therefore contain warnings. The \texttt{valid} property is
+based only on the absence of errors. The report's helper methods can append
+errors and warnings and determine whether specific error-code prefixes are
+present, which allows the textual summary to suppress an \texttt{[OK]} message
+when a related error already exists. A successful run can produce output of
+the form shown in Listing~\ref{lst:semantic-report-output}.
+
+\begin{lstlisting}[caption={Example of a successful semantic validation report.},label={lst:semantic-report-output}]
+[OK] 9 nodes validated
+[OK] 8 collision domains validated
+[OK] IP addresses are valid and unique
+[OK] Subnets and default gateways are coherent
+[OK] OSPF configuration is coherent on 5 nodes
+[OK] Semantic validation passed with 0 warning(s)
+\end{lstlisting}
+
+This two-stage design is useful from a usability perspective and also reflects
+an implementation problem observed during development. Structural errors must
+be reported immediately because the document cannot be interpreted safely, but
+stopping semantic analysis after its first error made larger topologies slow to
+correct: fixing one address or routing inconsistency could simply reveal the
+next independent problem on the following run. Semantic validation was
+therefore designed to collect multiple issues in one report. A user can correct
+duplicated addresses, an incorrect gateway, and a BGP remote-AS mismatch
+together instead of discovering them through three consecutive generator
+failures. In this sense, the report format is not only diagnostic output; it is
+a direct optimisation of the edit--validate--correct development cycle.
+
+\section{Validation Workflow and Limitations}
+\label{sec:validation-workflow}
+
+The command-line option \cliopt{validate-only} exposes the validation layer
+without creating or modifying a laboratory. The workflow resolves the
+configuration path, loads the YAML document, executes structural validation,
+executes semantic validation, prints the resulting report, and terminates
+before output-directory preparation. A typical invocation is shown in
+Listing~\ref{lst:validate-only}.
+
+\begin{lstlisting}[language=bash,caption={Validating a configuration without generating a laboratory.},label={lst:validate-only}]
+python3 generate_lab.py multi-area --validate-only
+\end{lstlisting}
+
+This mode is useful while editing a topology because validation can be repeated
+without changing generated files. It can also be incorporated into a
+version-control or continuous-integration workflow. Normal generation performs
+semantic validation again before writing output. The repetition is
+intentional: the generation function should not rely on being called only
+through one command-line path, so it protects itself by validating the
+configuration it receives.
+
+The repository contains several configurations of increasing complexity that
+exercise the same core model. \texttt{client-router-server.yml} represents a
+minimal routed topology and is useful for checking the fundamental mapping of
+hosts, interfaces, collision domains, and default gateways. \texttt{Test1.yml}
+contains several client LANs, a server-side network, and a mesh of OSPF routers;
+it exercises a larger single-area addressing and routing configuration and
+also contains auxiliary connection-test references that can be checked for
+integrity. \texttt{multi-area.yml} associates OSPF areas directly with
+interfaces and demonstrates that the area assignment can remain close to the
+prefix it affects. \texttt{multi\_AS.yml} assigns different BGP autonomous
+systems to routers and declares explicit peers and advertised LAN prefixes,
+thereby exercising ASN, neighbour-address, remote-AS, reciprocity, and router-ID
+checks. Finally, \texttt{Test\_enterprise\_multi\_as\_structured.yml} combines
+several routing styles and uses the structured multiprotocol representation,
+including OSPF area options, RIP markers, BGP sessions, and redistribution.
+Together, these files act both as examples of the accepted language and as
+regression inputs during framework development.
+
+The current configuration model remains intentionally pragmatic. It is not
+formalised through a separate YAML Schema or JSON Schema document; the Python
+implementation is the authoritative definition of accepted structure and
+semantics. This keeps the project compact, but external editors cannot derive
+the complete language from a standard schema file. The configuration also
+remains a hierarchy of dictionaries and lists rather than a typed internal
+object model, so some assumptions are distributed across the loader, validator,
+and generator.
+
+Not all aspects of a node can be validated statically. Custom startup commands
+are arbitrary shell strings, and a complete manual \texttt{frr.config} block is
+opaque to most semantic checks. The framework can validate the surrounding
+node and interface model, but the correctness of user-supplied command text is
+ultimately the user's responsibility. Static route entries are similarly less
+richly analysed than addressing and dynamic-routing relationships. A future
+version could define stricter schemas for these structures while retaining a
+controlled escape mechanism for advanced use cases.
+
+Some current rules depend on project conventions rather than on a universal
+network model. The role-oriented address checks mentioned above rely on node
+naming conventions. The global duplicate-address rule also assumes one address
+namespace for the complete laboratory; supporting overlapping addresses in
+separate routing instances would require a richer representation of routing
+contexts. The resource-directory check relies on exact correspondence between
+a directory name and a declared node. These choices are reasonable for the
+current framework because they simplify generation and diagnostics, but they
+should be understood as implementation constraints rather than Kathar\'a
+requirements.
+
+The FRRouting model is intentionally broad enough for the topologies developed
+in the project but does not attempt to expose the entire FRRouting command
+language. OSPF, RIP, and BGP are supported, including multiprotocol routers and
+redistribution, while advanced features can be supplied through
+\texttt{frr.config}. As noted earlier, FRR capability is partly inferred from
+node type and partly from the \texttt{frr} section. This produces a small
+asymmetry around \texttt{frr.enabled} for nodes that are already typed as
+routers, switches, or firewalls. Making capability selection explicit and
+uniform would be a useful refinement.
+
+Another important limit is that semantic validation proves configuration
+coherence, not runtime correctness. A YAML file can have valid identifiers,
+unique addresses, consistent subnets, reachable gateways, and coherent routing
+relationships while the resulting network still fails to converge because of
+a runtime condition, a user-supplied command, a container-specific issue, or a
+more subtle protocol property not represented by the validator. Application
+availability is even further outside the scope of this stage. These properties
+must be checked after generation and execution. The value of the validation
+layer is therefore preventive: it eliminates a large class of deterministic
+configuration mistakes before containers are started, reducing the number of
+runtime failures that must be diagnosed manually.
+
+In summary, the YAML document is the authoritative description of a laboratory
+before generation. It can be selected by name or path, loaded safely, and
+expressed through a compact set of operations covering node identity, type,
+interfaces, addressing, gateways, static routes, custom startup behaviour, and
+OSPF, RIP, or BGP configuration. Structural validation protects the framework
+from malformed input, while semantic validation examines the relationships
+among those fields and distinguishes blocking errors from non-blocking
+warnings. The result is a validated Python representation that can be handed
+to the generation stage with a substantially lower risk of deterministic
+configuration errors. The next chapter describes how this validated source is
+translated into standard Kathar\'a artefacts and how the resulting laboratory
+is managed during its lifecycle.

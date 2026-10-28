@@ -1,0 +1,6 @@
+metric,n,mean,median,q1,q3,min,max,variance,stddev
+baseline_application_median_difference_ms,5,2.2609,2.1665,2.147,2.4715,1.826,2.6935,0.110629,0.33261
+baseline_application_p95_difference_ms,5,4.7156,4.245,4.162,5.516,3.237,6.418,1.56325,1.2503
+active_load_availability_difference_pp,5,100,100,100,100,100,100,0,0
+load_rejection_reduction,5,264,264,264,264,264,264,0,0
+load_max_active_connection_reduction,5,12,12,12,12,12,12,0,0

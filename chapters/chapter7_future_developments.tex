@@ -1,0 +1,658 @@
+\chapter{Framework Evolution and Future Developments}
+\label{chap:future-developments}
+
+The framework developed in this thesis was intentionally designed as a
+lightweight layer on top of Kathar\'a. Its current scope is therefore limited
+and explicit: it provides a declarative representation of a laboratory,
+validates that representation, generates standard Kathar\'a artefacts, assists
+with laboratory lifecycle operations, and supports a set of repeatable
+measurements. The experimental evaluation in
+\Cref{chap:experimental-evaluation} shows that this foundation is already
+sufficient to build and observe a non-trivial routed environment under
+substantially different operating conditions. At the same time, the same
+experiment also identifies several directions in which the framework could be
+generalised.
+
+The purpose of this chapter is not to describe functionality that is already
+implemented. Instead, it presents a possible evolution path from the current
+prototype towards a broader framework for network experimentation. The main
+idea is to preserve the characteristics that motivated the original design---a
+readable declarative configuration, explicit validation, standard Kathar\'a
+output, and simple command-line operation---while extending the framework with
+reusable experiment definitions, runtime verification, richer experiment
+management, and a cleaner separation between the logical network model and the
+execution backend. These developments are discussed as future work and should
+therefore be interpreted as architectural proposals rather than as features of
+the present implementation.
+
+\section{Extension to Network Attack Testing}
+\label{sec:future-attack-testing}
+
+The controlled scenario presented in the previous chapter demonstrates that the
+framework can support more than topology generation. A generated laboratory can
+also host application services, execute coordinated client measurements, apply
+a bounded adverse workload, and collect observations that distinguish network
+reachability from application-level availability. In the current repository,
+however, this workflow is tied to a specific experiment and to a set of scripts
+written for that experiment. A natural evolution would be to extract the
+reusable concepts from that implementation and introduce a generic subsystem
+for controlled security and resilience testing.
+
+The objective of such an extension would not be to turn the project into a
+general-purpose attack tool. Instead, it would support bounded experiments that
+study denial-of-service and related resilience conditions inside an isolated
+environment \cite{rfc4732}. The value of Kathar\'a in this context is precisely
+that potentially disruptive network conditions can be reproduced inside an
+isolated and explicitly configured environment. The future framework should
+therefore model adverse conditions as \emph{experimental scenarios}: bounded,
+repeatable changes applied to nodes that belong to the current laboratory and
+observed through a predefined measurement procedure. This interpretation also
+broadens the scope beyond malicious traffic. From the point of view of the
+framework, a security test, an accidental overload, a temporary link problem,
+and a routing fault are all controlled deviations from an expected baseline
+that can be introduced, measured, and compared.
+
+A first extension could support several families of adverse network conditions.
+Examples include connection-pressure scenarios, controlled high-rate UDP or
+ICMP traffic, service discovery and scanning inside the emulated network,
+short traffic bursts, artificial congestion, temporary link failures, routing
+misconfiguration, and selected routing anomalies. These examples represent
+different causes, but the orchestration problem is similar in each case. The
+framework must identify the participating nodes, validate that they belong to
+the laboratory, apply a bounded action for a known period, continue measuring
+the relevant services, and stop the action deterministically. The specific
+traffic generator or fault mechanism would become an implementation detail of
+a scenario type rather than the organising principle of the whole experiment.
+
+This suggests separating three concepts that are only partially separated in
+the current project: the \emph{topology}, the \emph{experiment}, and the
+\emph{measurements}. The topology should continue to describe the relatively
+stable network structure: nodes, interfaces, collision domains, addressing,
+routing, and node resources. An experiment should describe a temporary
+condition applied to that topology. A measurement specification should state
+which observable properties must be recorded. Keeping these concepts separate
+would allow the same topology to be reused for different experiments and the
+same experiment definition to be applied, when compatible, to more than one
+topology.
+
+A possible future configuration could therefore use a dedicated experiment
+document such as the conceptual example in
+\Cref{lst:future-experiment-definition}. The syntax is illustrative and is not
+implemented by the current framework.
+
+\begin{lstlisting}[caption={Conceptual declarative definition of a controlled experiment.},label={lst:future-experiment-definition}]
+experiment:
+  name: service_resilience_test
+  duration: 60
+
+  source_nodes:
+    - node_a
+    - node_b
+
+  target:
+    node: server
+    port: 9000
+
+  workload:
+    type: connection_stress
+    profile: medium
+
+  measurements:
+    - availability
+    - tcp_connect_time
+    - application_response_time
+\end{lstlisting}
+
+The important aspect of this proposal is not the exact YAML syntax but the
+change in abstraction. Instead of encoding an experiment primarily through
+shell variables and script-specific command-line arguments, the user would
+provide a structured description that could be validated before execution.
+The framework could check that \texttt{node\_a}, \texttt{node\_b}, and
+\texttt{server} are nodes in the selected topology, that the target port is
+valid, that the requested workload type is installed, and that the selected
+metrics are supported. The resulting experiment definition would then become
+part of the reproducible input together with the topology configuration.
+
+Scenario profiles could further reduce repetition. Rather than expressing every
+parameter explicitly for every run, the framework could expose named profiles
+such as \texttt{baseline}, \texttt{low}, \texttt{medium}, and \texttt{high}.
+A profile would not imply an absolute notion of severity; it would simply be a
+versioned collection of bounded parameters for a particular scenario type.
+Users could then execute the same topology under multiple profiles while the
+framework records the exact values used by each run. The current baseline and
+controlled-load comparison in \Cref{chap:experimental-evaluation} can be seen
+as a first manual instance of this more general pattern.
+
+A generic experiment subsystem should also make safety constraints part of the
+configuration model rather than relying only on conventions in individual
+scripts. At minimum, future workload definitions should have explicit maximum
+durations, maximum concurrency or rate parameters, and target restrictions.
+Most importantly, a target should be expressed through a node reference in the
+selected laboratory whenever possible, rather than as an arbitrary external
+address. The validation phase could resolve the reference to the addresses
+assigned to that node and reject destinations that do not belong to the
+emulated environment. The framework could also terminate all experiment
+processes when a configured deadline is reached or when the laboratory is
+stopped. These constraints would preserve the intended use of the system as an
+isolated experimentation platform.
+
+Generalising the scenario model would also make mitigation testing more
+systematic. The rate-limiting reverse-proxy experiment evaluated in
+Section~\ref{sec:mitigation-results} is a first instance: a public endpoint at
+\texttt{10.30.1.10} forwards admitted sessions to a private backend at
+\texttt{10.30.2.10} while applying global and per-source connection limits.
+The archived comparison reuses the same clients, round count, activation
+schedule, and measurement schema across five executions per topology. These
+paired repetitions were orchestrated as separate runs; future work should
+encode their common parameters in a shared experiment definition and execute
+the complete batch automatically.
+More generally, a mitigation should not be evaluated by changing the workload
+and the topology at the same time without recording those changes. The
+framework could define experimental variants that share the same workload and
+measurement specification while modifying one clearly identified network or
+service configuration. Rate limiting, filtering, traffic shaping,
+service-capacity changes, firewall policies, and architectural isolation are
+examples of mechanisms that could be compared in this way.
+
+Conceptually, the execution model would evolve from a scenario-specific script
+into the pipeline shown in \Cref{fig:future-experiment-pipeline}.
+
+\begin{figure}[htbp]
+\centering
+\begin{tikzpicture}[
+    node distance=7mm,
+    block/.style={draw, rounded corners, align=center, minimum width=4.8cm, minimum height=8mm},
+    arrow/.style={-{Latex[length=2mm]}, thick}
+]
+\node[block] (topology) {Validated topology};
+\node[block, below=of topology] (experiment) {Validated experiment definition};
+\node[block, below=of experiment] (runtime) {Laboratory startup and readiness checks};
+\node[block, below=of runtime] (scenario) {Bounded scenario execution};
+\node[block, below=of scenario] (measure) {Concurrent measurements};
+\node[block, below=of measure] (compare) {Scenario comparison and report};
+
+\draw[arrow] (topology) -- (experiment);
+\draw[arrow] (experiment) -- (runtime);
+\draw[arrow] (runtime) -- (scenario);
+\draw[arrow] (scenario) -- (measure);
+\draw[arrow] (measure) -- (compare);
+\end{tikzpicture}
+\caption{Possible future pipeline for reusable controlled network experiments.}
+\label{fig:future-experiment-pipeline}
+\end{figure}
+
+This extension would build directly on the present framework. The node names,
+addressing information, output directories, concurrent client execution, and
+CSV-based measurements already provide several of the required building
+blocks. Future work would mainly need to formalise their relationships and
+replace scenario-specific orchestration with a reusable experiment model.
+
+\section{Runtime Verification and Automated Testing}
+\label{sec:future-runtime-verification}
+
+The current validation subsystem operates before laboratory generation. It can
+identify malformed structures, duplicated addresses, inconsistent subnets,
+invalid gateways, routing configuration problems, and other errors that can be
+deduced from the declarative input. This is useful because it prevents many
+problems from reaching the deployment stage. Nevertheless, a statically valid
+configuration does not guarantee that the running network has reached the
+state intended by the user. The difference between \emph{configuration
+correctness} and \emph{runtime correctness} is therefore an important area for
+future development.
+
+Several causes can produce this difference. A container may fail to start, a
+startup command may return an error, an expected interface may not be present,
+a service process may terminate immediately, or a dynamic routing protocol may
+require additional time to converge. Similarly, two routers can contain
+syntactically valid BGP configurations while their session never reaches the
+\texttt{Established} state. These conditions cannot be fully detected by
+analysing the YAML document alone. A future framework should consequently add
+a verification phase after \texttt{kathara lstart} and before an experiment is
+considered ready.
+
+The first level of runtime verification could compare the generated model with
+the basic state of each container. The framework already knows which nodes
+should exist and which interfaces and addresses were generated for them. It
+could therefore verify that all expected containers are running, inspect
+\texttt{ip addr} to check interface addressing, inspect \texttt{ip route} to
+verify default and static routes, and confirm that required processes are
+active. These checks would transform information already available during
+generation into explicit post-start assertions.
+
+Routing protocols require more specialised checks. For an OSPF laboratory, the
+framework could inspect the neighbour table and verify that expected
+adjacencies are present after a configurable convergence interval
+\cite{rfc2328}. For BGP, it could check that selected peers reach the expected
+session state and that required prefixes appear in the routing table
+\cite{rfc4271,frr_user_guide}. The same principle applies to
+application services: a node configured to provide a TCP service could be
+considered ready only after the corresponding socket is listening and, where
+appropriate, after a minimal application-level request succeeds. Such checks
+would make startup deterministic from the point of view of later experiments.
+
+The intended state could be partially inferred from the topology, but not every
+expectation can be derived automatically. A future extension could therefore
+allow users to declare selected behavioural expectations. The conceptual
+configuration in \Cref{lst:future-expected-state} illustrates this idea.
+
+\begin{lstlisting}[caption={Conceptual declaration of expected runtime properties.},label={lst:future-expected-state}]
+expected:
+  connectivity:
+    - source: pc_a
+      destination: server
+      protocol: tcp
+      port: 9000
+      reachable: true
+
+  routing:
+    r1:
+      ospf_neighbors: 2
+
+    edge_router:
+      bgp_peers_established: 1
+\end{lstlisting}
+
+The framework could translate such expectations into runtime checks and produce
+a structured comparison between the expected and observed state. A failed
+expectation should not necessarily be treated as a software error: in some
+experiments, an unreachable destination may be intentional. The relevant point
+is that the expected outcome is explicit and machine-readable, allowing the
+same assertion to be evaluated across repeated runs.
+
+This mechanism would also improve the orchestration logic. In the current
+experimental workflow, fixed waiting periods and explicit reachability checks
+are used to reduce the risk of starting measurements before the laboratory is
+ready. A more general implementation could replace most fixed delays with
+state-based readiness conditions. For example, instead of waiting an arbitrary
+number of seconds after startup, the framework could poll the required OSPF
+adjacencies until they appear or until a maximum convergence timeout is
+reached. The experiment would start only when all mandatory readiness checks
+succeed. If they do not, the run would be marked as invalid rather than being
+mixed with application measurements. The distinction made in
+\Cref{chap:experimental-evaluation} between a valid baseline and a run affected
+by initial reachability problems shows why this separation matters.
+
+Runtime verification should be complemented by automated testing of the
+framework itself. The present implementation could be covered by unit tests for
+configuration loading, structural validation, semantic validation, collision-
+domain analysis, startup generation, \texttt{lab.conf} generation, and
+FRRouting output. Each test could provide a small input configuration and
+compare the resulting data or files with an expected representation. Negative
+tests would verify that invalid configurations produce the correct validation
+issues without modifying the output directory.
+
+A second layer could consist of integration tests that create very small
+Kathar\'a laboratories. An integration test could generate a two- or three-node
+configuration, start it, execute one or more runtime assertions, and clean it
+again. Such tests would verify not only the Python generation logic but also
+its compatibility with the Kathar\'a and Docker environment. Because these
+operations are more expensive than unit tests, they could be executed
+separately or only on systems where the required runtime is available.
+
+The combination of static validation, runtime verification, and automated
+software tests would produce a clearer lifecycle:
+
+\begin{center}
+\texttt{configuration} $\rightarrow$ \texttt{static validation}
+$\rightarrow$ \texttt{generation} $\rightarrow$ \texttt{startup}
+$\rightarrow$ \texttt{runtime verification} $\rightarrow$
+\texttt{experiment}
+\end{center}
+
+This evolution would also make the framework more useful in teaching. A
+student laboratory could include both the intended topology and a set of
+expected properties. The framework could then report whether the generated or
+modified network satisfies those properties without hiding the underlying
+Kathar\'a commands and files. The user would still be able to connect to nodes
+and inspect the network manually, while automated checks would provide a
+repeatable reference point.
+
+\section{Experiment Management and Usability}
+\label{sec:future-experiment-management}
+
+The current project deliberately keeps its tools small and independent.
+Generation, startup, connectivity measurements, metric visualisation, and
+cleanup are implemented through separate Python or shell entry points. This
+modularity was useful during development because each component could be tested
+and changed independently. As the number of supported workflows grows,
+however, the same modularity can create a usability problem: the user must know
+which script to invoke, in which order, with which laboratory path, and where
+the resulting files will be stored. A future version should preserve the
+internal modules while presenting a more unified external interface.
+
+A single command-line application could act as an orchestration layer. Its
+interface could expose commands such as those shown in
+\Cref{lst:future-cli}. The names are illustrative, but they express a consistent
+resource-oriented workflow.
+
+\begin{lstlisting}[language=bash,caption={Conceptual unified command-line interface.},label={lst:future-cli}]
+framework validate topology.yml
+framework generate topology.yml
+framework start my_lab
+framework verify my_lab
+framework experiment my_lab experiment.yml
+framework report my_lab experiment_0042
+framework stop my_lab
+framework delete my_lab
+\end{lstlisting}
+
+Internally, these commands could call the same generation, validation, testing,
+and reporting components that exist as separate scripts. The change would
+therefore concern orchestration rather than a monolithic rewrite. A unified
+interface would also make help messages, error handling, configuration paths,
+and naming conventions consistent across the project.
+
+Experiment identity is another area that deserves stronger support. The current
+repository already uses numbered experiment-result directories, which is an
+effective first step because it prevents one run from overwriting the results
+of another.
+A future implementation could formalise this idea by assigning every execution
+a unique experiment identifier and storing all inputs and metadata required to
+interpret that run. The directory structure could resemble
+\Cref{lst:future-results-layout}.
+
+\begin{lstlisting}[caption={Possible future experiment output layout.},label={lst:future-results-layout}]
+results/
+`-- experiment_0042/
+    |-- metadata.json
+    |-- topology.yml
+    |-- experiment.yml
+    |-- measurements.csv
+    |-- server_metrics.csv
+    `-- report.pdf
+\end{lstlisting}
+
+The metadata file could record the experiment identifier, timestamp, framework
+version, topology identifier, topology hash, experiment parameters, Kathar\'a
+version, Docker version, and selected host information. Capturing this
+information would make it easier to determine whether two result sets were
+produced under comparable conditions. Storing a copy of the topology and
+experiment definition alongside the measurements would also ensure that later
+changes to files in \path{configs/} do not make an old result ambiguous.
+
+A cryptographic hash of the input configuration could provide a simple link
+between source and output. The hash would not replace the copied YAML document,
+but it would make accidental configuration changes immediately visible. The
+same principle could be extended to the framework version, for example by
+recording a Git commit identifier when available. Reproducibility would then be
+based not only on the numerical measurements but also on a traceable record of
+how the laboratory and experiment were produced.
+
+Reporting could also be integrated into the experiment lifecycle. The current
+tools already calculate summary statistics and visualise selected measurements.
+A future report generator could systematically combine raw measurements,
+metadata, validation status, runtime readiness checks, and plots. It could
+produce an HTML or PDF report containing success rate, availability, mean,
+median, percentile statistics, error categories, resource utilisation, and
+comparisons among profiles or experiment variants. The raw CSV files should
+remain available so that the automated report is an additional representation
+rather than the only form of the data.
+
+A related improvement is automatic topology visualisation. The generator
+already has enough information to construct a graph: node names, node types,
+interfaces, collision domains, addresses, and routing relationships are known
+before the laboratory is started. A visualisation component could transform
+this model into Graphviz, Mermaid, SVG, or another portable representation. The
+same diagram could be embedded in generated experiment reports and used as a
+quick check before deployment. For larger laboratories, automatic layout would
+be especially useful because a textual YAML file becomes progressively harder
+to interpret as the number of nodes and collision domains increases.
+
+Visualisation should remain derived from the declarative source rather than
+becoming a second authoritative configuration. An editor that allows users to
+modify the graph directly could be considered later, but the underlying change
+should still be represented in the same data model and serialised back into a
+versioned configuration. This avoids creating two independent descriptions of
+the same laboratory.
+
+A lightweight web interface could eventually expose generation, validation,
+lifecycle control, topology visualisation, and result browsing through a
+browser. Such an interface could be useful in teaching environments where
+users are less familiar with command-line tools. Nevertheless, the CLI should
+remain a first-class interface because it is more suitable for automation,
+version-controlled workflows, remote execution, and integration testing. A web
+interface would therefore be a front end to the same core services rather than
+a replacement for them.
+
+Finally, experiment management could support batches of related runs. Instead
+of manually executing one profile at a time, the user could declare a matrix
+of scenarios, repetitions, or topology variants. The framework would assign a
+separate identifier to each run, execute them sequentially or with explicitly
+controlled parallelism, and generate an aggregate report. This would be
+particularly useful when studying variability. The repeated-run method used in
+\Cref{chap:experimental-evaluation} already bases its principal conclusions on
+a distribution of run-level summaries, but its five acquisition blocks were
+launched as separate commands. A batch facility would make the same method
+declarative, automatic, and reusable for other experiment matrices.
+
+
+\section{Using LLM-Based Coding Alongside the Framework}
+\label{sec:future-llm-integration}
+
+The comparison in \Cref{sec:llm-role} first suggests an immediately usable
+workflow rather than a requirement to integrate a model into the software. A
+user can employ any general-purpose LLM-based coding assistant to draft or
+modify the YAML file, run the existing validator, and return its diagnostics to
+the assistant when another revision is useful. The model does not write
+directly to the Kathar\'a runtime and is not treated as the authority on whether
+a configuration is valid: its output enters the existing pipeline as untrusted
+candidate input. A future front end could automate this exchange, but the main
+synergy already exists through ordinary files, command output, and measured
+results.
+
+The first implementation step would be to formalise the currently implemented
+configuration model. The current accepted language is defined by Python code
+and documented in \Cref{chap:configuration-validation}; future work already identifies a strict
+schema as desirable. An LLM integration strengthens that requirement because a
+machine-generated draft benefits from an explicit description of allowed keys,
+types, enumerations, and nested structures. A JSON Schema or an equivalent
+versioned schema could be supplied to the model as context and also enforced by
+the framework independently. The model could then be instructed to produce
+only a structured object conforming to that schema instead of free-form
+Kathar\'a files.
+
+Schema conformance would remain only the first check. The existing semantic
+validator would still be needed because many network properties depend on
+relationships rather than local field types. Two addresses can each be valid
+CIDR values while still being duplicates; a gateway can be a valid IP address
+while being unreachable from the node; and two BGP declarations can each be
+well formed while disagreeing on the remote autonomous system. These are
+precisely the kinds of checks for which deterministic code is preferable to
+asking the same model that produced the configuration whether its own answer is
+correct.
+
+The resulting interaction could use the validation report as a repair protocol.
+A first LLM response would produce a candidate YAML document. The framework
+would return either success or a list of structured issues. If errors were
+present, a controller could send the candidate configuration and the relevant
+issue codes back to the model and request a revised version. The loop would be
+bounded by a small maximum number of attempts and would preserve every candidate
+for traceability. A conceptual exchange is shown in
+\Cref{lst:future-llm-loop}.
+
+\begin{lstlisting}[language=bash,caption={Conceptual LLM-assisted validation loop.},label={lst:future-llm-loop}]
+user intent
+  -> LLM: candidate topology.yml
+  -> framework validate topology.yml
+       -> VALID: generate laboratory
+       -> ERROR: return structured diagnostics
+                 -> LLM/human revises topology.yml
+                 -> validate again
+\end{lstlisting}
+
+This design would make the LLM replace part of the manual authoring effort, not
+the validator. It would also preserve a useful property of the present project:
+a user who does not want to use an LLM could continue to write YAML directly
+and follow exactly the same validation and generation path. The AI component
+would therefore be an adapter to the declarative interface rather than a new
+required dependency.
+
+A second use of LLMs could occur after execution. Runtime verification proposed
+in \Cref{sec:future-runtime-verification} could produce structured facts such as
+missing routes, inactive services, failed OSPF adjacencies, or unexpected
+application responses. An LLM could combine those facts with the source
+configuration and selected logs to explain likely causes or suggest a next
+inspection command. The same principle applies to experiment results: raw CSV
+files, packet captures, and metadata should remain authoritative evidence, while
+an LLM may generate a human-readable interpretation or propose hypotheses for a
+subsequent experiment. This separation avoids making an automatically generated
+summary the only record of what happened.
+
+The integration also introduces security and control requirements. The present
+configuration language intentionally exposes powerful escape mechanisms. A
+\texttt{commands} entry becomes shell text in a startup file,
+\texttt{frr.config} can contain arbitrary FRRouting configuration, and an
+explicit image can change the software executed by a node. These fields are
+useful for expert users but should not be executed automatically merely because
+an LLM proposed them. A safer assisted mode could prohibit opaque fields by
+default, require explicit human approval for them, or apply allow-lists for
+commands and images. Generation could also run under resource limits and with a
+clearly isolated output directory before any laboratory is started.
+
+Traceability should include the AI-assisted part of the process. If an LLM is
+used, experiment metadata could record that fact together with the model family
+or endpoint, the prompt template or task description, the schema version, and a
+hash of the accepted YAML source. The exact conversational history need not
+become part of every experiment, but the final source and framework version
+must remain sufficient to regenerate the laboratory. This preserves the thesis'
+main reproducibility principle: the accepted configuration, not the transient
+conversation, is the authoritative experiment input.
+
+There is also a useful teaching perspective. An LLM can explain why a route or
+BGP relationship is required and can help a student produce an initial
+configuration, while deterministic validation prevents the interaction from
+ending at a plausible-looking answer. The student can compare the LLM proposal,
+the validator diagnostics, the generated Kathar\'a files, and the observed
+runtime state. The AI assistant then becomes part of the learning process
+without hiding the concrete networking mechanisms that the laboratory is meant
+to expose.
+
+Research on LLM-assisted networking already points toward such hybrid designs.
+NetConfEval considers the interaction between LLMs and existing network
+synthesis mechanisms, while LLM-NetCFG combines intent-driven generation with
+verification in a network-management workflow
+\cite{wang2024netconfeval,lira2025llmnetcfg}. The proposed extension follows
+the same general principle but keeps the scope specific to this thesis: the LLM
+would improve how a user reaches the YAML representation and how diagnostics are
+interpreted, whereas the framework would continue to own validation, generation,
+and the transition to the Kathar\'a runtime.
+
+\section[Towards a More General Network Emulation Framework]{Towards a More General Network Emulation\\Framework}
+\label{sec:future-general-framework}
+
+The previous proposals can be implemented incrementally without abandoning
+Kathar\'a. In fact, preserving direct compatibility with Kathar\'a is one of the
+main strengths of the current project: generated laboratories remain standard,
+inspectable environments rather than opaque artefacts that require a custom
+runtime. If the framework grows substantially, however, a stronger separation
+between its logical network model and its Kathar\'a-specific generation code
+would improve maintainability and make the architecture easier to extend.
+
+The current pipeline can be simplified as
+
+\begin{center}
+\texttt{YAML configuration} $\rightarrow$ \texttt{Kathar\'a files}.
+\end{center}
+
+A more general architecture would insert an explicit internal model and a
+backend boundary. The existence of different emulation approaches, including
+Kathar\'a and container-/namespace-based systems such as Mininet, illustrates
+why the logical model and backend-specific representation should remain
+separate \cite{scazzariello2020kathara,lantz2010network}:
+
+\begin{center}
+\texttt{configuration} $\rightarrow$ \texttt{network model}
+$\rightarrow$ \texttt{backend} $\rightarrow$ \texttt{runtime artefacts}.
+\end{center}
+
+The internal model would represent concepts such as laboratories, nodes,
+interfaces, collision domains, addresses, routes, and routing configuration
+without embedding the syntax of \texttt{lab.conf} or startup files. The
+Kathar\'a backend would then translate this model into the artefacts described
+in \Cref{chap:laboratory-generation}. This separation would make it easier to
+test the model independently from file generation and would provide a clear
+place for future backend-specific behaviour.
+
+Such an abstraction does not imply that support for other emulation platforms
+would be simple. Different systems expose different network models, lifecycle
+semantics, privilege requirements, and configuration mechanisms. A future
+backend interface would therefore be valuable primarily because it separates
+responsibilities, not because it guarantees portability. Kathar\'a would remain
+the reference backend, while alternative targets could be investigated only
+where their capabilities map cleanly onto the internal model.
+
+A plugin architecture could complement this separation. The present
+\texttt{gen\_lab.py} module contains several responsibilities related to
+routing, resource import, Wireshark integration, and output generation. If more
+protocols, experiment types, validators, and reporting components are added,
+continuing to extend a small number of central modules would increase coupling.
+A future layout could instead organise optional capabilities around explicit
+extension points, for example:
+
+\begin{lstlisting}[caption={Conceptual modular organisation for a larger framework.},label={lst:future-plugin-layout}]
+framework/
+|-- core/
+|-- model/
+|-- validators/
+|-- backends/
+|   `-- kathara/
+|-- experiments/
+|-- measurements/
+|-- reporting/
+`-- plugins/
+    |-- ospf/
+    |-- bgp/
+    `-- wireshark/
+\end{lstlisting}
+
+A plugin would not necessarily correspond to a dynamically installed Python
+package. The important design principle is that an optional capability should
+have a defined way to contribute configuration fields, validation rules,
+generation logic, runtime checks, and documentation. For example, a routing
+extension could register both semantic validation and backend generation rules
+without requiring unrelated experiment-management code to know its internal
+details.
+
+Chapter~\ref{chap:robustness-security-scalability} already characterises the
+scalability of the translator with synthetic inputs, including configurations
+containing up to 10,000 nodes. Those measurements cover loading, semantic
+validation, and file generation, but deliberately stop before the generated
+laboratories are started. The remaining scalability question is therefore
+runtime execution: future work should measure Kathar\'a startup time, host
+memory and CPU consumption, container stability, and routing convergence as the
+number of executed nodes and collision domains increases. This would separate
+the scalability of the Python translation stage, which has been benchmarked,
+from the scalability of the Docker/Kathar\'a runtime, which has not.
+
+Large experiments also raise questions about orchestration. A single host is a
+simple and reproducible environment for the present project, but CPU scheduling,
+memory pressure, and the number of containers eventually influence results.
+The framework should therefore record host resource information and make clear
+when measurements are specific to one execution environment. Distributed
+execution could be studied in the future, but it would represent a substantial
+change in scope because synchronisation, clock behaviour, network links between
+hosts, and result aggregation would become part of the experimental model.
+For this reason, distributed operation should be considered a possible
+long-term direction rather than a direct next step.
+
+The same caution applies to a graphical topology editor and other usability
+features. They can make the framework easier to approach, but they should not
+weaken the properties that make the current design useful for reproducible
+experiments. The declarative source must remain versionable, inspectable, and
+sufficient to reconstruct the laboratory. Runtime state and generated files
+should remain derived artefacts. Any additional interface should therefore
+operate on the same underlying model rather than creating an independent source
+of configuration.
+
+Taken together, the developments discussed in this chapter describe a gradual
+path from a laboratory generator towards a more complete experimentation
+framework. The first stage would generalise scenario execution and runtime
+verification using the existing Kathar\'a backend. The second would improve
+experiment identity, metadata, reporting, and automated testing. An optional
+LLM-assisted front end could then use the same declarative model and validation
+report without becoming a replacement for them. Only after these foundations
+are stable would a richer internal model, plugin system, or additional backends
+be necessary. This staged evolution preserves the simplicity of the present
+implementation while providing clear architectural directions for extending its
+use in network emulation, resilience testing, security experimentation,
+AI-assisted configuration, and teaching.

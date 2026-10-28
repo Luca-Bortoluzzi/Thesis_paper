@@ -1,0 +1,520 @@
+\chapter{Robustness, Security Limitations and Scalability Evaluation}
+\label{chap:robustness-security-scalability}
+
+The previous chapters presented the configuration model, the validation
+pipeline, the generation of Kathar\'a artefacts, and the experimental use of
+the framework. This chapter evaluates the framework from a different
+perspective. Rather than considering only whether a valid laboratory can be
+generated, it investigates how the translator behaves when its input becomes
+large, structurally complex, ambiguous, or potentially unsafe.
+
+From the perspective of the software-development lifecycle introduced in
+Section~\ref{sec:software-development-lifecycle}, this chapter represents a
+final verification stage. Earlier iterations primarily asked whether the
+framework could generate and execute the intended laboratories. The tests below
+instead challenge assumptions made during implementation and ask what happens
+when the same mechanisms are exercised with large, malformed, ambiguous, or
+potentially unsafe inputs. The resulting observations are therefore feedback on
+the design choices described in Chapters~\ref{chap:requirements-architecture}--\ref{chap:laboratory-generation}, not only a list of independent limitations.
+
+The analysis has two objectives. The first is to identify scalability limits
+through reproducible stress tests. The second is to discuss implementation
+choices that may become robustness or security weaknesses when configuration
+files are malformed or originate from an untrusted source. These two aspects
+are related. A configuration language is not only a convenient input format:
+it is also an interface through which a user can request the creation of
+thousands of nodes, routes, routing statements, files, and startup commands.
+
+It is important to distinguish three categories throughout this chapter.
+A \emph{security vulnerability} is a behaviour that can become exploitable
+across an explicit trust boundary. A \emph{robustness weakness} is a condition
+that can result in an incorrect or misleading laboratory without necessarily
+creating a security compromise. A \emph{model limitation} is a deliberate or
+implicit restriction in the set of networks that the translator can
+represent. Not all limitations described below should therefore be interpreted
+as exploitable vulnerabilities.
+
+\section{Stress-Test Methodology}
+\label{sec:stress-methodology}
+
+The descriptive scalability benchmarks exercise the translator itself rather
+than the runtime scalability of Docker or Kathar\'a. Each input is therefore processed
+in two modes. The first uses the framework's validation-only option and
+measures YAML loading, structural validation, and semantic validation without
+creating a laboratory. The second performs complete generation and additionally
+writes \texttt{lab.conf}, node startup files, and FRRouting files where
+required. Starting the resulting containers is intentionally outside the scope
+of these measurements because it would mix translator performance with Docker,
+Kathar\'a, kernel, and host-resource limitations.
+
+The benchmark data used in this chapter are the results recorded in
+\path{final_benchmark.csv} and \path{final_summary.csv}. The CSV data
+contain two measured repetitions for each available scenario and mode. No
+measured execution reached a timeout. Every valid configuration returned exit
+code 0 in both repetitions. The intentionally invalid configuration returned
+exit code 1 in both repetitions, as expected. Because two repetitions cannot
+support strong distributional or inferential claims, the measurements are used
+only as descriptive observations of the tested executions.
+
+The scenarios were selected so that different dimensions of input complexity
+could be isolated rather than increasing only the number of nodes:
+
+\begin{itemize}
+    \item \texttt{flat\_10000.yml}: 10,000 nodes sharing a large flat
+    topology, intended to stress node and address processing without creating
+    thousands of distinct collision domains;
+    \item \texttt{star\_4000.yml}: approximately 4,000 nodes arranged around
+    a central router with a separate point-to-point collision domain for each
+    peripheral connection, intended to stress subnet and collision-domain
+    validation;
+    \item \texttt{chain\_1000.yml}: 1,000 routers connected in a chain,
+    stressing repeated routed-node and interface generation;
+    \item \texttt{enterprise\_100r\_10h.yml}: 100 routers with ten hosts per
+    routed LAN, providing a more realistic mixed topology;
+    \item \texttt{dense\_500.yml}: 500 routers with multiple inter-router
+    links, increasing interface density;
+    \item \texttt{ospf\_1000.yml}: 1,000 OSPF routers, stressing FRRouting
+    validation and configuration generation;
+    \item \texttt{routes\_20000.yml}: a configuration dominated by 20,000
+    static-route declarations;
+    \item \texttt{commands\_100000.yml}: a configuration dominated by 100,000
+    custom startup commands;
+    \item \texttt{large\_yaml\_15mb.yml}: a 15.64 MiB YAML configuration,
+    intended to stress deserialisation and in-memory representation;
+    \item \texttt{invalid\_5000.yml}: 5,000 intentionally invalid nodes,
+    intended to verify that large erroneous inputs are rejected without
+    producing a laboratory.
+\end{itemize}
+
+For each measured run the benchmark records elapsed time, peak resident memory,
+exit status, input size, number of generated files, and output size. Table
+\ref{tab:stress-results} reports the aggregated values contained in the
+provided summary CSV. Times are medians of the two recorded repetitions, while
+memory is the maximum peak RSS observed in those repetitions.
+
+\begin{table}[htbp]
+\centering
+\scriptsize
+\resizebox{\textwidth}{!}{%
+\begin{tabular}{lrrrrrrr}
+\toprule
+\textbf{Scenario} &
+\textbf{Validate (s)} &
+\textbf{Generate (s)} &
+\textbf{Val. RSS (MiB)} &
+\textbf{Gen. RSS (MiB)} &
+\textbf{Input (MiB)} &
+\textbf{Files} &
+\textbf{Output (MiB)} \\
+\midrule
+Flat 10,000 nodes       & 4.065  & 8.840  & 97.04 & 109.16 & 1.127  & 10004 & 1.146 \\
+Star 4,000 nodes        & 14.565 & 29.570 & 60.69 & 67.36  & 0.688  & 4004  & 0.727 \\
+Chain 1,000 routers     & 1.320  & 2.835  & 27.03 & 28.66  & 0.165  & 4001  & 0.579 \\
+Enterprise 100r/10h     & 0.535  & 1.095  & 25.53 & 26.96  & 0.141  & 1401  & 0.185 \\
+Dense 500 routers       & 1.235  & 2.520  & 24.79 & 26.29  & 0.135  & 2001  & 0.347 \\
+OSPF 1,000 routers      & 1.730  & 3.695  & 35.38 & 37.88  & 0.292  & 4001  & 0.675 \\
+20,000 static routes    & 2.900  & 5.920  & 82.34 & 92.83  & 1.020  & 6     & 0.867 \\
+100,000 commands        & 4.410  & 8.645  & 76.81 & 87.23  & 3.709  & 2     & 2.946 \\
+Large YAML              & 7.610  & 15.240 & 74.47 & 124.36 & 15.640 & 2     & 15.030 \\
+Invalid 5,000 nodes     & 2.025  & --     & 57.04 & --     & 0.595  & 0     & 0 \\
+\bottomrule
+\end{tabular}}
+\caption{Descriptive stress-test results from the supplied benchmark CSV
+files. Times are medians of two raw measurements and should not be interpreted
+as stable population estimates.}
+\label{tab:stress-results}
+\end{table}
+
+The results show that node count alone is not a sufficient predictor of
+translation cost. The clearest example is the comparison between the flat and
+star topologies. The flat topology contains 10,000 nodes and validates in
+4.065 seconds. The star topology contains only about 4,000 nodes but requires
+14.565 seconds for validation. It is therefore approximately 3.6 times slower
+despite containing substantially fewer nodes. Complete generation exhibits the
+same effect: 8.840 seconds for the 10,000-node flat case and 29.570 seconds for
+the 4,000-node star case.
+
+This difference is explained by the semantic checks performed on collision
+domains. The validator compares the subnets associated with different
+collision domains in order to reject overlapping Layer~3 address spaces.
+When a topology contains a very large number of distinct point-to-point
+domains, the number of pairwise comparisons can grow approximately as
+
+\[
+    \frac{D(D-1)}{2},
+\]
+
+where \(D\) is the number of collision domains being compared. In the
+worst case this corresponds to quadratic growth, \(O(D^2)\). A flat topology,
+by contrast, may contain many nodes while keeping \(D\) small. The stress
+results therefore identify the number of distinct collision domains as a more
+important scalability factor than raw node count for this part of semantic
+validation.
+
+The tests dominated by configuration volume reveal a different limit. The
+20,000-route configuration validates in 2.900 seconds and reaches 82.34 MiB
+peak RSS, while the 100,000-command configuration validates in 4.410 seconds
+and reaches 76.81 MiB. The 15.64 MiB YAML file requires 7.610 seconds for
+validation and reaches 74.47 MiB during validation. During complete generation
+its peak RSS rises to 124.36 MiB, the highest value in the supplied summary.
+These cases indicate that large nested YAML structures impose a cost even when
+the logical topology is simple, because the complete document must be
+deserialised into Python dictionaries and lists before semantic processing can
+begin.
+
+Another consistent result is the relationship between validation and complete
+generation time. Across all valid scenarios, the ratio between the median
+generation time and the median validation time ranges from approximately
+1.96 to 2.17, with a mean close to 2.06. This behaviour is consistent with the
+current implementation, in which normal execution validates the configuration
+at the command-line boundary and the lower-level generation function loads and
+validates it again before writing files. The duplicated validation gives
+\texttt{generate\_lab()} an independent safety property, because the function
+does not assume that its caller has already validated the input. However, the
+stress tests show that this design also becomes measurable overhead for large
+configurations.
+
+Finally, \texttt{invalid\_5000.yml} provides a useful negative result. Both
+recorded executions terminated in about 2.02--2.03 seconds with exit code 1,
+without timeout and without generating output files. This demonstrates that
+the validation pipeline can reject a large erroneous configuration without
+continuing into the generation phase. From a robustness perspective this is a
+positive property.
+
+\section{Security and Robustness Weaknesses}
+\label{sec:translator-weaknesses}
+
+The stress tests identify performance boundaries, but other weaknesses arise
+from the expressive features of the configuration language itself. Several of
+these features are deliberate escape mechanisms. They are useful when YAML
+files are trusted and authored by the laboratory designer, but they create a
+clear trust boundary if configurations are downloaded, shared, or generated by
+another user.
+
+\paragraph{Arbitrary startup commands.}
+The most important security-sensitive feature is the \texttt{commands} list.
+Each command string is copied literally to the node startup file. This is
+intentionally flexible: it allows the framework to launch applications,
+configure kernel parameters, create files, or perform operations not covered
+by the declarative model. It also means that a YAML file can carry executable
+shell commands.
+
+A harmless proof-of-concept configuration is:
+
+\begin{lstlisting}[caption={Benign demonstration of command execution through a startup entry.},
+label={lst:command-execution-example}]
+nodes:
+  pc_a:
+    type: host
+    interfaces:
+      - network: lan_a
+        ip: 10.0.1.10/24
+    commands:
+      - echo "COMMAND_EXECUTED" > /tmp/translator_test
+\end{lstlisting}
+
+The generated \texttt{pc\_a.startup} file contains the command literally. When
+the laboratory starts, the command executes inside the node container. This
+should not be described as an automatic host compromise: execution occurs in
+the container context, and escalation beyond that boundary depends on the
+container configuration and runtime privileges. Nevertheless, if YAML is
+accepted from an untrusted source, the feature becomes a command-execution
+boundary and should be treated accordingly.
+
+A theoretical mitigation is to introduce two operating modes. A strict or
+safe mode would reject \texttt{commands} entirely and permit only structured
+operations represented by dedicated YAML fields. An explicit
+\cliopt{allow-commands} option could retain the current behaviour for trusted
+laboratories. Common operations currently expressed as shell strings could
+progressively be converted into typed fields. Additional protection could
+include command allowlists, clear warnings when a configuration contains
+opaque commands, and reduced Linux capabilities for containers that do not
+need privileged operations.
+
+\paragraph{Opaque commands can bypass semantic intentions.}
+The parser performs only limited consistency checks on command strings. For
+example, it can recognise some explicit attempts to disable IPv4 forwarding on
+a node declared as a router. General shell semantics, however, cannot be
+reliably inferred from text. Equivalent operations can be written in many
+forms. A configuration such as
+
+\begin{lstlisting}[caption={Equivalent command that changes a forwarding runtime property.},
+label={lst:forwarding-bypass-example}]
+r1:
+  type: router
+  forwarding: true
+  interfaces:
+    - network: lan_a
+      ip: 10.0.1.1/24
+    - network: lan_b
+      ip: 10.0.2.1/24
+  commands:
+    - sh -c 'echo 0 > /proc/sys/net/ipv4/ip_forward'
+\end{lstlisting}
+
+illustrates the general problem. The declarative field states that the node is
+intended to forward traffic, while a later opaque command can change the
+runtime state. In addition, \texttt{forwarding: true} currently expresses
+intent and validation consistency but does not itself emit a kernel
+\texttt{sysctl} operation.
+
+The general solution is not to build an increasingly complex regular
+expression for shell commands. A stronger design would make forwarding a
+generated postcondition: when \texttt{forwarding: true} is selected, the
+generator could explicitly configure the kernel state at a well-defined stage
+and optionally verify it after startup. In strict mode, commands that directly
+modify protected networking parameters could be disallowed.
+
+\paragraph{Raw FRRouting configuration bypasses most semantic guarantees.}
+The \texttt{frr.config} field provides another intentional escape mechanism.
+Instead of generating protocol blocks from structured YAML fields, the
+framework writes user-provided FRRouting text directly to
+\texttt{frr.conf}. This is useful for advanced FRR features not represented by
+the declarative model, but the translator cannot fully validate the semantics
+of arbitrary FRR syntax.
+
+For example:
+
+\begin{lstlisting}[caption={Raw FRR content that cannot be fully validated by the YAML model.},
+label={lst:raw-frr-example}]
+frr:
+  config: |
+    router ospf
+     this-command-does-not-exist
+\end{lstlisting}
+
+can be syntactically valid YAML while still containing an invalid FRR command.
+Successful YAML translation therefore does not imply successful FRR startup.
+
+A possible mitigation is to distinguish generated FRR configuration from raw
+FRR configuration in the validation report and mark the latter as
+``unverified''. A stricter implementation could invoke the FRR parser in a
+disposable validation environment before accepting the laboratory. Another
+option is to disable \texttt{frr.config} in strict mode and require the
+structured protocol model whenever reproducibility and static validation are
+more important than maximum expressiveness.
+
+\paragraph{Static-route next hops are less deeply validated.}
+
+Interfaces and default gateways receive strong semantic checks, including address parsing and directly connected gateway validation. Arbitrary static routes are less extensively analysed. Consider a router connecting two different networks:
+
+\begin{lstlisting}[caption={Static route with a next hop outside the router's connected subnets.},
+label={lst:static-route-weakness}]
+r1:
+  type: router
+  interfaces:
+    - network: lan_a
+      ip: 10.0.1.1/24
+    - network: lan_b
+      ip: 10.0.2.1/24
+
+  routes:
+    - to: 172.16.0.0/16
+      via: 192.168.200.1
+\end{lstlisting}
+
+The router is directly connected only to the \texttt{10.0.1.0/24} and \texttt{10.0.2.0/24} networks. However, the static route specifies \texttt{192.168.200.1} as its next hop, even though that address is not reachable through either configured interface.
+
+The route can still be translated into:
+
+\begin{lstlisting}[language=bash]
+ip route add 172.16.0.0/16 via 192.168.200.1
+\end{lstlisting}
+
+Consequently, the YAML configuration may be accepted and translated even though the resulting route is operationally incorrect.
+
+A possible improvement would be to apply to every \texttt{routes[].via} field a reachability check similar to the one already used for \texttt{default\_gateway}. The validator could verify that the next-hop address belongs to at least one subnet directly connected to the router. More advanced cases, such as explicitly configured \texttt{onlink} routes or recursive next-hop resolution, could later be supported through dedicated configuration options.
+
+\paragraph{Unknown YAML keys can become silent misconfigurations.}
+YAML itself permits arbitrary mapping keys. During rapid feature development,
+retaining the loaded document as ordinary dictionaries made it easy to add new
+properties without a separate schema-migration step. The same permissiveness
+has a cost: the framework interprets the keys that belong to its model, while
+an unknown node-level key is not automatically translated into Kathar\'a or
+FRRouting behaviour. This creates a robustness risk when a user makes a
+typographical error:
+
+\begin{lstlisting}[caption={Typographical error that resembles a valid configuration field.},
+label={lst:unknown-key-example}]
+pc_a:
+  type: host
+  interfaces:
+    - network: lan_a
+      ip: 10.0.1.10/24
+  defualt_gateway: 10.0.1.1
+\end{lstlisting}
+
+The user's intention is obvious, but \texttt{defualt\_gateway} is not
+\texttt{default\_gateway}. A strict configuration schema should therefore
+reject unknown fields rather than silently ignore them. This can be
+implemented with explicit allowed-key sets or a schema-validation library.
+Error messages could additionally suggest the closest valid field name.
+
+\paragraph{FRR enable/disable semantics are not completely uniform.}
+Router, switch, and firewall node types are considered FRR-capable by their
+type, while a host becomes FRR-capable through its FRR declaration. As a
+result, \texttt{frr.enabled: false} does not act as one universal
+``disable FRR'' switch across all node types. This is primarily an API and
+robustness weakness rather than a security vulnerability, because a
+configuration may express a state whose operational interpretation is not
+immediately intuitive.
+
+A future version could define a single precedence rule: an explicit
+\texttt{frr.enabled} value should override type-based defaults, while absence
+of the field should preserve automatic capability detection. This would make
+the meaning of the configuration independent of the path by which FRR
+capability was inferred.
+
+\paragraph{Container-image override introduces a trust decision.}
+The optional \texttt{image} field overrides the default image selected by the
+framework. This is necessary for custom laboratories, but a configuration from
+an untrusted source can therefore request an image that has not been reviewed
+by the laboratory author. The security consequences depend on Docker and
+Kathar\'a runtime policy, so this should be described as an image-trust or
+supply-chain risk rather than as a demonstrated container escape.
+
+For controlled environments, image overrides could be limited to an allowlist
+of repositories or immutable image digests. Strict mode could reject
+unapproved images, while normal development mode would retain the current
+flexibility.
+
+\section{Translator Model Limitations}
+\label{sec:translator-model-limitations}
+
+Some behaviours that appear restrictive are consequences of the current
+network model rather than vulnerabilities.
+
+The validator assumes a single coherent Layer~3 address space for the complete
+laboratory. IP addresses are treated as globally unique and overlapping
+subnets on distinct collision domains are rejected. This simplifies target
+resolution and catches many accidental addressing errors, but it prevents
+legitimate multi-tenant or VRF-style laboratories in which isolated routing
+domains intentionally reuse the same prefixes.
+
+For example, the following conceptual topology is reasonable in a
+multi-tenant system:
+
+\begin{lstlisting}[caption={Address reuse that is meaningful only when routing domains are isolated.},
+label={lst:overlapping-tenant-example}]
+tenant_a_pc:
+  interfaces:
+    - network: tenant_a_lan
+      ip: 192.168.1.10/24
+
+tenant_b_pc:
+  interfaces:
+    - network: tenant_b_lan
+      ip: 192.168.1.10/24
+\end{lstlisting}
+
+The current translator rejects this configuration because the same address is
+used twice, even though the two logical tenants might never share a routing
+domain. The corresponding mitigation would not be to weaken duplicate-address
+validation globally. A better extension would introduce an explicit
+\texttt{routing\_domain}, namespace, or VRF concept and scope address
+uniqueness and subnet-overlap checks within that domain.
+
+The switch and firewall node types have similar expressiveness limitations.
+They reuse the common node and interface model, but the YAML language does not
+currently provide a dedicated policy language for VLANs, trunks, spanning
+tree, firewall rules, NAT policy, or complex filtering. Such behaviour must be
+implemented through custom commands or imported node resources. This design is
+sufficient for the current project scope but also increases reliance on the
+opaque escape mechanisms discussed above.
+
+\section{Possible Improvements}
+\label{sec:possible-security-scalability-improvements}
+
+The identified weaknesses can be addressed incrementally without redesigning
+the complete framework.
+
+First, the collision-domain overlap check should avoid an all-pairs comparison
+when the number of domains becomes large. IPv4 and IPv6 networks can be
+indexed separately and ordered by network address, or stored in a prefix or
+interval structure. The objective is to reduce the common-case complexity from
+quadratic pairwise comparison toward \(O(D \log D)\) indexing and lookup,
+while preserving the current ability to report the two conflicting domains.
+
+Second, the normal generation path could reuse the already loaded and
+validated Python representation instead of parsing and validating the source a
+second time. The lower-level generation function can retain its independent
+safety property by exposing two interfaces: a public function that accepts a
+path and performs complete validation, and an internal function that accepts a
+validated configuration object. The command-line path would then use the
+second function after its initial validation. The benchmark result that
+generation takes approximately twice as long as validation across all
+scenarios suggests that this change could have a measurable effect.
+
+Third, explicit resource limits should be considered if configuration files
+can originate from untrusted sources. Limits may include maximum YAML file
+size, number of nodes, number of interfaces, number of collision domains,
+number of static routes, number of custom commands, and maximum generated-file
+count. These limits would convert extreme resource consumption into an early,
+predictable validation error. The limits should be configurable so that
+research users can deliberately raise them for large experiments.
+
+Fourth, the configuration language could provide a strict mode. In this mode,
+unknown fields would be errors, \texttt{commands} and raw
+\texttt{frr.config} would be rejected or require explicit opt-in, image
+overrides would be restricted, and structured route validation would be
+stronger. The existing permissive mode could remain available for trusted
+laboratory development.
+
+Fifth, translation success could be separated from runtime correctness through
+an optional post-generation verification stage. Such a stage could start the
+laboratory, verify expected interface addresses and forwarding state, inspect
+FRR daemon status, and run selected connectivity tests. This would not replace
+static validation, but it would detect the class of errors that cannot be
+proven by inspecting opaque shell or FRR commands.
+
+\section{Discussion}
+\label{sec:security-scalability-discussion}
+
+The experiments show that the translator does not have a single meaningful
+``maximum number of nodes''. Its effective scalability depends on which part
+of the configuration grows. A 10,000-node flat topology validates in 4.065
+seconds, while a 4,000-node star topology requires 14.565 seconds because it
+contains many more independent collision domains that must be compared.
+Large lists of routes and commands stress YAML deserialisation and memory
+rather than topology analysis. Complete generation introduces additional
+filesystem work and, in the current architecture, repeats loading and
+validation.
+
+The supplied results are encouraging in one respect: all valid stress
+configurations completed without timeout or generation error, and the large
+invalid configuration was rejected consistently without producing files.
+The results therefore do not indicate a small hard capacity limit. Instead,
+they reveal specific scaling dimensions that can be improved.
+
+From a security perspective, the principal boundary is trust in the YAML
+source. The framework already uses safe YAML loading, which prevents YAML tags
+from directly constructing arbitrary Python objects. Safe deserialisation,
+however, does not make the complete configuration harmless: the configuration
+language deliberately contains fields that later become shell commands, raw
+FRRouting text, and container-image choices. For a locally authored research
+laboratory this is an acceptable and useful design decision. For a service
+that accepted third-party configurations, the same features would require
+strict sandboxing, explicit opt-in, resource limits, and stronger schema
+validation.
+
+The benchmark should also be interpreted with an important methodological
+limitation. The supplied CSV records two measured repetitions per scenario.
+The two runs are close to each other and are sufficient to identify large
+differences such as the star-versus-flat behaviour, but they are not enough for
+strong statistical claims about small performance differences. A future
+evaluation could repeat each test five or more times on a documented reference
+machine and report median, percentile, and variance. It would also be useful
+to run a second, separate experiment that starts the generated laboratories in
+Kathar\'a. That experiment would measure emulation scalability rather than
+translator scalability and should not be mixed with the results presented
+here.
+
+Overall, the evaluation identifies a clear boundary between the parts of the
+framework that are strongly validated and those deliberately left open for
+advanced user control. The most relevant improvement areas are the
+collision-domain overlap algorithm, duplicate loading and validation, strict
+schema handling, static-route next-hop validation, and explicit controls for
+opaque commands, raw FRR configuration, and custom images. These changes would
+preserve the framework's main advantage---the ability to generate readable
+standard Kathar\'a laboratories from a compact YAML source---while making its
+behaviour more predictable under large or untrusted inputs.

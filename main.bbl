@@ -1,0 +1,227 @@
+\begin{thebibliography}{10}
+
+\bibitem{bonofiglio2018kathara}
+Gaetano Bonofiglio, Veronica Iovinella, Gabriele Lospoto, and Giuseppe
+  Di~Battista.
+\newblock {Kathar\'a}: A container-based framework for implementing network
+  function virtualization and software defined networks.
+\newblock In {\em 2018 IEEE/IFIP Network Operations and Management Symposium
+  (NOMS 2018)}, pages 1--9. IEEE, 2018.
+\newblock DOI: \url{https://doi.org/10.1109/NOMS.2018.8406267}.
+
+\bibitem{docker_container}
+{Docker, Inc.}
+\newblock What is a container?
+\newblock
+  \url{https://docs.docker.com/get-started/docker-concepts/the-basics/what-is-a-container/},
+  n.d.
+\newblock Accessed: 13 October 2026.
+
+\bibitem{docker_image}
+{Docker, Inc.}
+\newblock What is an image?
+\newblock
+  \url{https://docs.docker.com/get-started/docker-concepts/the-basics/what-is-an-image/},
+  n.d.
+\newblock Accessed: 13 October 2026.
+
+\bibitem{docker_overview}
+{Docker, Inc.}
+\newblock What is {Docker}?
+\newblock \url{https://docs.docker.com/get-started/docker-overview/}, n.d.
+\newblock Accessed: 13 October 2026.
+
+\bibitem{europol_iocta_2026}
+{Europol}.
+\newblock Internet organised crime threat assessment ({IOCTA}) 2026.
+\newblock
+  \url{https://www.europol.europa.eu/cms/sites/default/files/documents/IOCTA-2026.pdf},
+  2026.
+\newblock See pp. 28--29 for DDoS activity and Operation Eastwood. Accessed: 11
+  August 2026.
+
+\bibitem{frr_user_guide}
+{FRRouting Project}.
+\newblock {FRRouting} user guide.
+\newblock \url{https://docs.frrouting.org/en/latest/}, n.d.
+\newblock Accessed: 13 October 2026.
+
+\bibitem{rfc4732}
+Mark Handley, Eric Rescorla, and {Internet Architecture Board}.
+\newblock Internet denial-of-service considerations.
+\newblock RFC 4732, RFC Editor, November 2006.
+\newblock Available: \url{https://www.rfc-editor.org/rfc/rfc4732.html}; DOI:
+  \url{https://doi.org/10.17487/RFC4732}.
+
+\bibitem{kathara_images_repo}
+{Kathar\'a Project}.
+\newblock {Docker Images}: Official image definitions.
+\newblock \url{https://github.com/KatharaFramework/Docker-Images}, n.d.
+\newblock Accessed: 13 October 2026.
+
+\bibitem{kathara_labconf_manpage}
+{Kathar\'a Project}.
+\newblock kathara-lab.conf(5): Network scenario configuration file.
+\newblock \url{https://www.kathara.org/man-pages/kathara-lab.conf.5.html}, n.d.
+\newblock Accessed: 13 October 2026.
+
+\bibitem{kathara_website}
+{Kathar\'a Project}.
+\newblock {Kathar\'a}: Lightweight container-based network emulation system.
+\newblock \url{https://www.kathara.org/}, n.d.
+\newblock Accessed: 13 October 2026.
+
+\bibitem{kathara_manpage}
+{Kathar\'a Project}.
+\newblock kathara(1): A network emulation tool.
+\newblock \url{https://www.kathara.org/man-pages/kathara.1.html}, n.d.
+\newblock Accessed: 13 October 2026.
+
+\bibitem{google_rapid_reset_2023}
+Emil Kiner and Tim April.
+\newblock Google mitigated the largest {DDoS} attack to date, peaking above 398
+  million rps.
+\newblock
+  \url{https://cloud.google.com/blog/products/identity-security/google-cloud-mitigated-largest-ddos-attack-peaking-above-398-million-rps},
+  October 2023.
+\newblock Google Cloud Blog, 10 October 2023. Accessed: 11 August 2026.
+
+\bibitem{github_ddos_2018}
+Sam Kottler.
+\newblock February 28th {DDoS} incident report.
+\newblock
+  \url{https://github.blog/news-insights/company-news/ddos-incident-report/},
+  March 2018.
+\newblock GitHub Blog, 1 March 2018. Accessed: 11 August 2026.
+
+\bibitem{lantz2010network}
+Bob Lantz, Brandon Heller, and Nick McKeown.
+\newblock A network in a laptop: Rapid prototyping for software-defined
+  networks.
+\newblock In {\em Proceedings of the 9th ACM SIGCOMM Workshop on Hot Topics in
+  Networks}, Hotnets-IX, pages 19:1--19:6. ACM, 2010.
+\newblock DOI: \url{https://doi.org/10.1145/1868447.1868466}.
+
+\bibitem{lira2025llmnetcfg}
+Oscar~G. Lira, Oscar~M. Caicedo, and Nelson L.~S. da~Fonseca.
+\newblock Large language models for zero touch network configuration
+  management.
+\newblock {\em IEEE Communications Magazine}, 63(7):146--153, 2025.
+\newblock Available: \url{https://doi.org/10.1109/MCOM.001.2400368}.
+
+\bibitem{liu2025llmnetworking}
+Fan Liu, Behrooz Farkiani, and Patrick Crowley.
+\newblock Large language models for computer networking operations and
+  management: A survey on applications, key techniques, and opportunities.
+\newblock {\em Computer Networks}, 271:111614, 2025.
+\newblock Available: \url{https://doi.org/10.1016/j.comnet.2025.111614}.
+
+\bibitem{rfc2453}
+Gary Malkin.
+\newblock {RIP} version 2.
+\newblock RFC 2453, RFC Editor, November 1998.
+\newblock Available: \url{https://www.rfc-editor.org/rfc/rfc2453.html}; DOI:
+  \url{https://doi.org/10.17487/RFC2453}.
+
+\bibitem{rfc8212}
+Jared Mauch, Job Snijders, and Greg Hankins.
+\newblock Default external {BGP} ({EBGP}) route propagation behavior without
+  policies.
+\newblock RFC 8212, RFC Editor, July 2017.
+\newblock Available: \url{https://www.rfc-editor.org/rfc/rfc8212.html}; DOI:
+  \url{https://doi.org/10.17487/RFC8212}.
+
+\bibitem{rfc2328}
+John Moy.
+\newblock {OSPF} version 2.
+\newblock RFC 2328, RFC Editor, April 1998.
+\newblock Available: \url{https://www.rfc-editor.org/rfc/rfc2328.html}; DOI:
+  \url{https://doi.org/10.17487/RFC2328}.
+
+\bibitem{rfc3101}
+Peter Murphy.
+\newblock The {OSPF} not-so-stubby area ({NSSA}) option.
+\newblock RFC 3101, RFC Editor, January 2003.
+\newblock Available: \url{https://www.rfc-editor.org/rfc/rfc3101.html}; DOI:
+  \url{https://doi.org/10.17487/RFC3101}.
+
+\bibitem{pearce2022copilotsecurity}
+Hammond Pearce, Baleegh Ahmad, Benjamin Tan, Brendan Dolan-Gavitt, and Ramesh
+  Karri.
+\newblock Asleep at the keyboard? assessing the security of {GitHub Copilot}'s
+  code contributions.
+\newblock In {\em 2022 IEEE Symposium on Security and Privacy (SP)}, pages
+  754--768. IEEE, 2022.
+\newblock Available: \url{https://doi.org/10.1109/SP46214.2022.9833571}.
+
+\bibitem{python_dataclasses}
+{Python Software Foundation}.
+\newblock \texttt{dataclasses} --- data classes ({Python} 3.12).
+\newblock \url{https://docs.python.org/3.12/library/dataclasses.html}, n.d.
+\newblock Accessed: 13 October 2026.
+
+\bibitem{python_ipaddress}
+{Python Software Foundation}.
+\newblock \texttt{ipaddress} --- {IPv4/IPv6} manipulation library ({Python}
+  3.12).
+\newblock \url{https://docs.python.org/3.12/library/ipaddress.html}, n.d.
+\newblock Accessed: 13 October 2026.
+
+\bibitem{pyyaml_docs}
+{PyYAML Project}.
+\newblock {PyYAML} documentation.
+\newblock \url{https://pyyaml.org/wiki/PyYAMLDocumentation}, n.d.
+\newblock Version 6.0.1 used in the experiments. Accessed: 13 October 2026.
+
+\bibitem{rfc4271}
+Yakov Rekhter, Tony Li, and Susan Hares.
+\newblock A border gateway protocol 4 ({BGP-4}).
+\newblock RFC 4271, RFC Editor, January 2006.
+\newblock Available: \url{https://www.rfc-editor.org/rfc/rfc4271.html}; DOI:
+  \url{https://doi.org/10.17487/RFC4271}.
+
+\bibitem{scazzariello2020kathara}
+Mariano Scazzariello, Lorenzo Ariemma, and Tommaso Caiazzi.
+\newblock {Kathar\'a}: A lightweight network emulation system.
+\newblock In {\em 2020 IEEE/IFIP Network Operations and Management Symposium
+  (NOMS 2020)}, pages 1--2. IEEE, 2020.
+\newblock DOI: \url{https://doi.org/10.1109/NOMS47738.2020.9110351}.
+
+\bibitem{wireshark_user_guide}
+Richard Sharpe, Ed~Warnicke, and Ulf Lamping.
+\newblock Wireshark user's guide.
+\newblock \url{https://www.wireshark.org/docs/wsug_html/}, n.d.
+\newblock Wireshark Foundation. Accessed: 29 July 2026.
+
+\bibitem{doj_mirai_dyn_2020}
+{U.S. Department of Justice, Office of Public Affairs}.
+\newblock Individual pleads guilty to participating in internet-of-things
+  cyberattack in 2016.
+\newblock
+  \url{https://www.justice.gov/archives/opa/pr/individual-pleads-guilty-participating-internet-things-cyberattack-2016},
+  December 2020.
+\newblock Press release, 9 December 2020; updated 5 February 2025. Accessed: 11
+  August 2026.
+
+\bibitem{wang2024netconfeval}
+Changjie Wang, Mariano Scazzariello, Alireza Farshin, Simone Ferlin, Dejan
+  Kosti\'{c}, and Marco Chiesa.
+\newblock {NetConfEval}: Can {LLMs} facilitate network configuration?
+\newblock {\em Proceedings of the ACM on Networking}, 2(CoNEXT2), 2024.
+\newblock Available: \url{https://doi.org/10.1145/3656296}.
+
+\bibitem{yaml122}
+{YAML Language Development Team}.
+\newblock {YAML Ain't Markup Language (YAML), Version 1.2.2}.
+\newblock \url{https://yaml.org/spec/1.2.2/}, 2021.
+
+\bibitem{cloudflare_ddos_2025}
+Omer Yoachimik.
+\newblock Defending the internet: How cloudflare blocked a monumental 7.3
+  {Tbps} {DDoS} attack.
+\newblock
+  \url{https://blog.cloudflare.com/defending-the-internet-how-cloudflare-blocked-a-monumental-7-3-tbps-ddos/},
+  June 2025.
+\newblock Cloudflare Blog, 19 June 2025. Accessed: 11 August 2026.
+
+\end{thebibliography}

@@ -1,0 +1,6 @@
+pair,direct_simulation,mitigated_simulation,baseline_application_median_difference_ms,baseline_application_p95_difference_ms,active_load_availability_difference_pp,load_rejection_reduction,load_max_active_connection_reduction
+1,simulation_0001,simulation_0002,2.6935,4.245,100,264,12
+2,simulation_0002,simulation_0003,2.147,6.418,100,264,12
+3,simulation_0003,simulation_0004,2.1665,3.237,100,264,12
+4,simulation_0004,simulation_0005,2.4715,5.516,100,264,12
+5,simulation_0005,simulation_0006,1.826,4.162,100,264,12

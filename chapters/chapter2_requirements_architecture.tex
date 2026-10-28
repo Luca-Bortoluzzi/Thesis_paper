@@ -1,0 +1,675 @@
+\chapter{Requirements, Development Lifecycle and System Architecture}
+\label{chap:requirements-architecture}
+
+This chapter defines the problem addressed by the framework, its scope, its
+requirements, the development lifecycle followed during the project, and the
+architecture adopted by the final implementation. The framework accepts a YAML
+configuration, validates it, and produces a standard Kathar\'a laboratory. It
+also provides lifecycle scripts through which a generated laboratory can be
+started, stopped, inspected, and removed. The detailed YAML model and the
+validation rules are presented in Chapter~\ref{chap:configuration-validation},
+while the translation of a valid configuration into \texttt{lab.conf}, startup
+files, FRRouting files, and node resources is discussed in the following
+chapter. The purpose of this chapter is therefore not only to state what the
+framework does, but also to explain why its main components were introduced,
+how problems encountered during development changed the requirements, and how
+the resulting responsibilities cooperate as a single system.
+
+\section{Problem, Scope, and Requirements}
+\label{sec:problem-scope-requirements}
+
+Kathar\'a provides a flexible representation of network laboratories
+\cite{kathara_website,kathara_manpage}, but the configuration of a non-trivial
+topology is normally distributed across several artefacts. A node interface is declared in \texttt{lab.conf}; its IP address is
+assigned in a startup file; the corresponding prefix may appear again in an
+FRRouting configuration; and scripts or other auxiliary resources may be
+stored in the directory associated with the node. Each individual file is
+readable, but the consistency of the complete laboratory must usually be
+maintained manually.
+
+This becomes progressively more difficult as the topology grows. A change to a
+single address may require coordinated changes to a gateway, a routing
+neighbour, an advertised network, a static route, or another reference used by
+a node. The individual files may remain syntactically valid even when the
+laboratory is no longer semantically coherent, and the resulting error may
+only become visible after the emulated environment has started. Repetition is
+a related problem: hosts repeatedly require interface configuration and a
+default route, while routers repeatedly require interface addressing, an
+appropriate container image, and routing configuration. Rewriting the same
+information in multiple files increases the probability of inconsistent node
+names, IP addresses, and interface indexes.
+
+A further limitation of the standard file-based workflow is the absence of an
+explicit validation boundary. Kathar\'a configuration files are executable
+artefacts rather than a high-level schema that can be analysed before output
+is written. The proposed framework introduces such a boundary by treating a
+single declarative YAML document as the source configuration, validating that
+document before generation, and only then producing the corresponding
+Kathar\'a files. The general problem addressed by the work can therefore be
+stated as follows:
+
+\begin{quote}
+How can a network laboratory be described once, checked for structural and
+semantic consistency, translated into standard Kathar\'a artefacts, and
+managed through a repeatable lifecycle?
+\end{quote}
+
+The framework is intentionally limited in scope. It does not replace Kathar\'a,
+Docker, FRRouting, or Wireshark; instead, it acts as an automation layer that
+prepares input for those tools. The implemented scope includes YAML-based
+descriptions of laboratories, nodes, interfaces, addressing, gateways, static
+routes, custom commands, and routing protocols; structural and semantic
+validation before generation; generation of \texttt{lab.conf} and one startup
+file per node; generation of FRRouting files for OSPF, RIP, and BGP; optional
+import of directories associated with declared nodes; optional integration of
+a real-time Wireshark node; explicit handling of pre-existing output
+directories; shell wrappers for starting, stopping, and deleting laboratories;
+and support for multiple configurations and generated laboratories. The
+experimental components contained in the repository use these generated
+laboratories, but they are not part of the core configuration architecture
+discussed here; their workloads, measurements, and evaluation are addressed in
+later chapters.
+
+The primary user is a student, researcher, or network experimenter who already
+understands basic Linux networking and needs to create repeatable Kathar\'a
+laboratories. The framework does not hide networking concepts: the user still
+chooses addresses, prefixes, gateways, routing protocols, and neighbours. Its
+purpose is to avoid manually distributing the same design choices among many
+files. A secondary stakeholder is the reviewer of an experiment. Generated
+files must remain readable so that the relationship between the YAML source
+and the resulting Kathar\'a configuration can be inspected. This requirement
+motivates the generation of ordinary text files rather than the use of a
+private runtime data store. The expected execution environment is a Linux
+workstation with Python, PyYAML, Docker, and Kathar\'a installed
+\cite{pyyaml_docs,docker_overview,kathara_website}. FRRouting is
+provided by the appropriate Kathar\'a image, while Wireshark integration also
+requires the selected container image and support for the exposed interface.
+
+The resulting workflow can be summarised through a small set of principal use
+cases. The user may select a configuration by supplying either an explicit
+path or a configuration name resolved inside a configured search directory.
+The framework then loads the document with PyYAML and requires the top-level
+value to be a mapping. The user may validate the configuration without
+creating or modifying a laboratory: structural validation checks mandatory
+fields, while semantic validation checks relationships among addresses,
+collision domains, gateways, roles, and routing declarations, producing a
+report containing errors, warnings, and summary lines. After successful
+validation, the user may generate the laboratory under the selected output
+directory; the framework writes \texttt{lab.conf}, one startup file per node,
+and the required FRRouting files, while existing output is handled according
+to the selected \cliopt{force} or \cliopt{clean} behaviour. If directory
+import is enabled, a directory located beside the YAML source is copied only
+when its name matches a declared node; unmatched directories are reported as
+warnings and skipped. Wireshark can be disabled, selected interactively,
+attached directly to one or more collision domains, or associated with the
+networks connected to a specific node. Finally, the generated laboratory can
+be started, inspected, cleaned, and removed without deleting the original YAML
+configuration.
+
+These use cases are formalised by the following functional requirements.
+
+\begin{longtable}{p{0.12\textwidth}p{0.78\textwidth}}
+\caption{Functional requirements of the framework.}
+\label{tab:functional-requirements}\\
+\toprule
+\textbf{ID} & \textbf{Requirement} \\
+\midrule
+\endfirsthead
+\toprule
+\textbf{ID} & \textbf{Requirement} \\
+\midrule
+\endhead
+FR1 & The framework shall accept either an explicit YAML path or a configuration name resolved inside a configurable directory. \\
+FR2 & The framework shall load YAML through a safe parser and reject a top-level value that is not a mapping. \\
+FR3 & The framework shall require a laboratory name and a non-empty node mapping. \\
+FR4 & The framework shall validate identifiers, node types, interfaces, collision domains, addresses, gateways, and routing declarations. \\
+FR5 & The framework shall distinguish generation-blocking errors from non-blocking warnings. \\
+FR6 & The framework shall provide a validation-only mode that does not create or modify a laboratory. \\
+FR7 & The framework shall generate a Kathar\'a \texttt{lab.conf} file from node-interface declarations. \\
+FR8 & The framework shall select a default container image according to node capabilities and permit an explicit image override. \\
+FR9 & The framework shall generate one startup file for every declared node. \\
+FR10 & Startup generation shall support interface addresses, a default gateway, static routes, FRR startup, and custom commands. \\
+FR11 & The framework shall generate FRRouting daemon and configuration files for enabled FRR devices. \\
+FR12 & The framework shall support OSPF, RIP, and BGP configuration forms represented by the YAML model. \\
+FR13 & The framework shall optionally copy node directories located beside the source YAML file. \\
+FR14 & The framework shall optionally attach a Wireshark node to selected collision domains. \\
+FR15 & The framework shall avoid silently overwriting an existing laboratory unless the user selects an explicit overwrite or clean-regeneration option. \\
+FR16 & The framework shall support a configurable output directory containing multiple generated laboratories. \\
+FR17 & The project shall provide commands or wrappers to start, stop, inspect, and delete generated laboratories. \\
+\bottomrule
+\end{longtable}
+
+In addition to these functions, the framework is constrained by a set of
+non-functional requirements that influence both the architecture and the
+implementation style.
+
+\begin{longtable}{p{0.22\textwidth}p{0.68\textwidth}}
+\caption{Non-functional requirements of the framework.}
+\label{tab:non-functional-requirements}\\
+\toprule
+\textbf{Property} & \textbf{Requirement} \\
+\midrule
+\endfirsthead
+\toprule
+\textbf{Property} & \textbf{Requirement} \\
+\midrule
+\endhead
+Reproducibility & The same maintained source configuration should regenerate the same logical laboratory structure. \\
+Transparency & Generated files must remain ordinary, readable Kathar\'a and FRRouting artefacts. \\
+Safety of file operations & Existing laboratory directories must not be removed or overwritten implicitly. \\
+Modularity & Loading, validation, generation, monitoring selection, and lifecycle operations should have separate responsibilities. \\
+Extensibility & New configuration properties or protocol forms should be addable without replacing the entire generation pipeline. \\
+Usability & Common operations should be available through a command-line interface with explicit options and informative messages. \\
+Traceability & Validation messages should identify the affected node, interface, domain, neighbour, or field. \\
+Portability & The project should operate in a standard Linux, Python, Docker, and Kathar\'a environment. \\
+Maintainability & Persistent modifications should be made in source YAML or resource directories rather than only in generated output. \\
+Compatibility & The generated laboratory should remain operable with standard Kathar\'a commands. \\
+\bottomrule
+\end{longtable}
+
+\subsection*{Requirements Traceability and Verification}
+\phantomsection
+\label{sec:functional-requirements-traceability}
+
+Table~\ref{tab:functional-requirements-traceability} links each functional
+requirement to the implementation behaviour and to the evidence presented in
+the thesis. ``Verified'' denotes that the behaviour is demonstrated by the
+described validation or generation workflow and, where applicable, by
+execution of generated laboratories. It does not imply exhaustive testing of
+every possible input combination.
+
+\begin{longtable}{p{0.08\textwidth}p{0.64\textwidth}p{0.16\textwidth}}
+\caption{Traceability matrix for functional requirements FR1--FR17.}
+\label{tab:functional-requirements-traceability}\\
+\toprule
+\textbf{ID} & \textbf{Implementation and verification evidence} & \textbf{Assessment} \\
+\midrule
+\endfirsthead
+\toprule
+\textbf{ID} & \textbf{Implementation and verification evidence} & \textbf{Assessment} \\
+\midrule
+\endhead
+FR1 & Path and configuration-name resolution are described in Section~\ref{sec:configuration-model-purpose} and exercised by the generation workflow. & Verified \\
+FR2 & Safe YAML loading and rejection of a non-mapping root are part of the structural-validation boundary in Section~\ref{sec:structural-validation}. & Verified \\
+FR3 & Mandatory \texttt{lab\_name} and non-empty \texttt{nodes} checks are documented with the structural rules in Section~\ref{sec:structural-validation}. & Verified \\
+FR4 & Identifier, role, interface, addressing, gateway, collision-domain, and routing checks are described in Sections~\ref{sec:structural-validation} and~\ref{sec:validation-workflow}. & Verified \\
+FR5 & The error/warning policy and its effect on generation are reported in Table~\ref{tab:error-warning-policy}. & Verified \\
+FR6 & Validation-only execution terminates before output generation, as described in Section~\ref{sec:validation-workflow}; the large invalid stress case also produced no files in Section~\ref{sec:stress-methodology}. & Verified \\
+FR7 & Translation from interface declarations to \texttt{lab.conf} is shown in Section~\ref{sec:generated-laboratory-structure} and Table~\ref{tab:yaml-to-generated}. & Verified \\
+FR8 & Capability-based default-image selection and explicit overrides are documented in Sections~\ref{sec:laboratory-generation-process} and~\ref{sec:generated-laboratory-structure}. & Verified \\
+FR9 & Per-node startup-file generation is described and illustrated in Section~\ref{sec:generated-laboratory-structure}. & Verified \\
+FR10 & Generated address, gateway, route, FRR-startup, and custom-command entries are mapped in Table~\ref{tab:yaml-to-generated}. & Verified \\
+FR11 & Generation of \texttt{daemons} and \texttt{frr.conf} for FRR-enabled nodes is described in Section~\ref{sec:generated-laboratory-structure}. & Verified \\
+FR12 & The supported OSPF, RIP, and BGP forms and their validation are documented in Sections~\ref{sec:configuration-model-purpose} and~\ref{sec:structural-validation}; routed laboratories provide runtime use evidence. & Verified \\
+FR13 & Selective import of directories whose names match declared nodes is described in Sections~\ref{sec:laboratory-generation-process} and~\ref{sec:generated-laboratory-structure}. & Verified \\
+FR14 & Wireshark selection, generated attachment, and a runtime capture are presented in Section~\ref{sec:generated-laboratory-structure} and Figure~\ref{fig:wireshark-runtime-capture}. & Verified \\
+FR15 & Refusal, explicit overwrite, and clean-regeneration behaviours are documented in Section~\ref{sec:laboratory-generation-process}. & Verified \\
+FR16 & Output-root selection and coexistence of named generated laboratories are described in Sections~\ref{sec:laboratory-generation-process} and~\ref{sec:laboratory-lifecycle}. & Verified \\
+FR17 & Start, stop, status, connection, clean, and deletion operations and their effects are reported in Section~\ref{sec:laboratory-lifecycle} and Table~\ref{tab:lifecycle-effects}. & Verified \\
+\bottomrule
+\end{longtable}
+
+The matrix makes two boundaries explicit. First, FR12 is verified only for the
+protocol forms represented by the current YAML model, not for every command
+offered by FRRouting. Second, runtime execution complements but does not replace
+static verification: opaque custom commands and complete manual FRR fragments
+remain outside the semantics that the validator can prove.
+
+\section{Software Development Lifecycle and Design Evolution}
+\label{sec:software-development-lifecycle}
+
+The final architecture should not be interpreted as the implementation of a
+complete specification that existed before coding began. Development followed
+an iterative and incremental lifecycle in which a small working solution was
+extended after each cycle of generation, execution, observation, and
+correction. This approach was appropriate for the project because several
+requirements only became evident when real Kathar\'a laboratories were produced
+and executed. In particular, failures that were invisible at the level of YAML
+syntax or generated text files often became apparent only when routes,
+services, or measurement scripts were exercised at runtime.
+
+The initial requirement was deliberately narrow. Manually preparing a
+Kathar\'a laboratory required the same design information to be distributed
+among \texttt{lab.conf}, node startup files, FRRouting configuration, and
+node-specific directories. One possible approach would have been to automate
+edits to these files individually, but that would have preserved the very
+duplication that motivated the project. A single declarative source was
+therefore preferred. YAML was selected because its hierarchical structure maps
+naturally to laboratories, nodes, interfaces, and nested routing properties,
+while remaining readable and directly editable. The first useful prototype
+could consequently describe a topology at a higher level and derive ordinary
+Kathar\'a files from it.
+
+Generation alone soon proved insufficient. A YAML document could be parsed and
+translated while still describing an inconsistent network: for example, an
+address could be duplicated, a default gateway could lie outside every local
+subnet, or a routing relationship could refer to the wrong peer. Allowing such
+configurations to reach the runtime moved deterministic errors to a much later
+and less convenient debugging stage. Validation therefore became an explicit
+architectural responsibility. Structural validation was introduced to protect
+the implementation from malformed document shapes, while semantic validation
+was added to reason about relationships among addresses, collision domains,
+gateways, node roles, and routing declarations before any output was written.
+
+The next iterations were driven by increasingly complex routed laboratories.
+Simple host--router scenarios required only interfaces and gateways, whereas
+multi-area OSPF, RIP, and multi-AS BGP scenarios required protocol-specific
+identifiers, areas, autonomous-system numbers, neighbours, advertised prefixes,
+and redistribution rules. Rather than replacing the earlier configuration
+files whenever the representation grew, the implementation retained compatible
+forms where practical. This reduced disruption to already working laboratories
+and made them useful as regression inputs, at the cost of some redundancy in
+the accepted FRRouting syntax. The same pragmatic principle motivated escape
+mechanisms such as \texttt{commands} and \texttt{frr.config}: they allowed the
+project to express specialised behaviour without first modelling every Linux or
+FRRouting command in the declarative language.
+
+Execution of the generated laboratories then introduced a different class of
+requirements. Inspecting files was not enough to determine whether packets were
+actually following the intended path or whether an application was available.
+Optional Wireshark integration was added as a diagnostic aid, lifecycle
+operations were kept separate from generation, and connectivity testing was
+progressively extended from basic reachability towards application-level
+verification. During development, a reachable target could still fail a service
+test when the application process was not running; this made the distinction
+between network reachability and service availability explicit in the final
+measurement design. Similarly, sequential client tests were adequate for
+checking individual hosts but were unsuitable once several clients had to
+observe the same service condition. The test runner was therefore changed to a
+round-based concurrent model.
+
+The experimental phase continued the same feedback loop. Earlier runs showed
+that application measurements could be contaminated by a network that had not
+yet reached a usable routing state. This motivated explicit readiness checks
+before collecting the baseline. As the repository accumulated several
+configurations and generated laboratories, utilities were also adapted to avoid
+assuming that only one laboratory existed and to use explicit targets or node
+names where appropriate. Finally, after functional behaviour was stable enough
+to support the controlled DoS experiment, development moved to verification of
+the translator itself. The stress and robustness tests in
+Chapter~\ref{chap:robustness-security-scalability} exposed new trade-offs,
+including duplicated validation work, permissive unknown YAML keys, incomplete
+analysis of arbitrary static routes, and the scalability cost of collision-domain
+overlap checks.
+
+Figure~\ref{fig:development-lifecycle} summarises the lifecycle used throughout
+the project. Verification is not represented as a terminal activity: an
+observed problem can create a new or refined requirement and start another
+iteration.
+
+\begin{figure}[htbp]
+\centering
+\begin{tikzpicture}[
+    node distance=8mm and 14mm,
+    state/.style={draw, rounded corners, align=center, minimum width=3.5cm, minimum height=8mm, font=\small},
+    arrow/.style={-{Latex[length=2mm]}, thick}
+]
+\node[state] (need) {Problem or\\new requirement};
+\node[state, right=of need] (design) {Design choice\\and alternative analysis};
+\node[state, below=of design] (impl) {Implementation\\or refactoring};
+\node[state, left=of impl] (verify) {Laboratory execution\\and verification};
+\node[state, below=of verify] (observe) {Problem, limitation,\\or new need observed};
+
+\draw[arrow] (need) -- (design);
+\draw[arrow] (design) -- (impl);
+\draw[arrow] (impl) -- (verify);
+\draw[arrow] (verify) -- (observe);
+\draw[arrow] (observe.west) -| ++(-1.0,0) |- (need.west);
+\end{tikzpicture}
+\caption{Iterative software-development lifecycle followed by the project.}
+\label{fig:development-lifecycle}
+\end{figure}
+
+The main iterations can be related directly to concrete features of the final
+framework, as summarised in Table~\ref{tab:development-evolution}. The table is
+not intended as a strict chronological log of every code change; instead, it
+identifies the recurring engineering pattern that connected requirements,
+observed problems, and implementation decisions.
+
+{\small
+\begin{longtable}{>{\raggedright\arraybackslash}p{0.18\textwidth}>{\raggedright\arraybackslash}p{0.34\textwidth}>{\raggedright\arraybackslash}p{0.38\textwidth}}
+\caption{Main development iterations and resulting design choices.}
+\label{tab:development-evolution}\\
+\toprule
+\textbf{Development stage} & \textbf{Need or problem observed} & \textbf{Resulting design or feature} \\
+\midrule
+\endfirsthead
+\toprule
+\textbf{Development stage} & \textbf{Need or problem observed} & \textbf{Resulting design or feature} \\
+\midrule
+\endhead
+Initial prototype & Repetitive and duplicated information across several Kathar\'a artefacts. & A declarative YAML source from which standard Kathar\'a files are generated. \\
+Validation & Generated files could remain syntactically plausible while describing an incoherent network. & Separate structural and semantic validation before filesystem modification. \\
+Routing extension & Larger laboratories required OSPF, RIP, BGP, multi-area, and multi-AS information. & Protocol-aware validation and FRRouting generation, while retaining compatible declaration forms. \\
+Extensibility & Some node behaviour could not be represented by the current declarative fields. & Generic \texttt{commands}, imported node resources, and the \texttt{frr.config} escape mechanism. \\
+Runtime diagnosis & Static inspection did not show actual packet paths or all runtime failures. & Optional Wireshark integration and explicit post-start inspection with Linux and FRR tools. \\
+Service verification & A reachable host or open TCP port did not necessarily mean that the application completed the requested operation. & Application-level request validation and distinct ICMP, TCP, and application metrics. \\
+Concurrent testing & Sequential client execution observed the service at different times. & Round-based concurrent measurements across legitimate clients. \\
+Experiment orchestration & Early measurements could begin before the routed topology was ready. & Readiness checks, isolated experiment outputs, and explicit baseline/adverse phases. \\
+Final verification & Functional success did not reveal all robustness or scalability limits. & Stress testing and analysis of permissive or expensive implementation choices. \\
+\bottomrule
+\end{longtable}
+}
+
+\section{System Architecture and Repository Organisation}
+\label{sec:system-architecture-repository}
+
+The architecture is organised as a sequential pipeline with explicit
+responsibility boundaries. Figure~\ref{fig:framework-architecture} shows the
+main flow from source configuration to the running laboratory.
+
+\begin{figure}[htbp]
+\centering
+\begin{tikzpicture}[
+    node distance=0.55cm,
+    box/.style={rectangle,draw,rounded corners,minimum width=11cm,minimum height=0.85cm,align=center}
+]
+\node[box] (source) {YAML source configuration and optional node-resource directories};
+\node[box,below=of source] (loader) {Path resolution and safe YAML loading (\texttt{Lexer.py})};
+\node[box,below=of loader] (structure) {Structural validation (\texttt{Parser.py})};
+\node[box,below=of structure] (semantic) {Semantic validation and validation report (\texttt{Parser.py})};
+\node[box,below=of semantic] (generation) {Kathar\'a and FRRouting generation (\texttt{gen\_lab.py})};
+\node[box,below=of generation] (output) {Generated laboratory under \texttt{labs/<lab\_name>/}};
+\node[box,below=of output] (lifecycle) {Start, inspect, clean, and remove through Kathar\'a and wrapper scripts};
+
+\draw[-{Latex[length=3mm]}] (source) -- (loader);
+\draw[-{Latex[length=3mm]}] (loader) -- (structure);
+\draw[-{Latex[length=3mm]}] (structure) -- (semantic);
+\draw[-{Latex[length=3mm]}] (semantic) -- (generation);
+\draw[-{Latex[length=3mm]}] (generation) -- (output);
+\draw[-{Latex[length=3mm]}] (output) -- (lifecycle);
+\end{tikzpicture}
+\caption{High-level architecture of the laboratory-generation framework.}
+\label{fig:framework-architecture}
+\end{figure}
+
+The pipeline does not construct a persistent hierarchy of domain objects such
+as \texttt{Node} or \texttt{Interface} classes. Introducing a typed internal
+model was considered a possible way to make invariants more explicit, but it
+would also have added another conversion layer between YAML and the relatively
+compact output model required by the prototype. The implemented version
+therefore keeps the validated configuration as a nested combination of Python
+dictionaries and lists. This choice reduced implementation overhead and made
+new YAML properties easy to prototype, but it also means that the validator is
+responsible for establishing all assumptions later used by the generator. The
+limitations of this choice become visible again in the discussion of strict
+schemas and unknown keys in Chapter~\ref{chap:robustness-security-scalability}.
+
+The root-level \texttt{generate\_lab.py} file is intentionally minimal: it
+imports and invokes \texttt{main()} from
+\texttt{src\_gen\_lab/gen\_lab.py}. Configuration discovery and
+deserialisation are handled by \texttt{Lexer.py}. Despite its historical
+filename, this component does not perform token-by-token lexical analysis; its
+architectural role is to resolve the supplied configuration and load YAML.
+\texttt{Parser.py} performs the minimum structural checks and the complete
+semantic analysis. It defines the supported node and protocol sets, the
+identifier pattern, the validation issue representation, and the report used
+by both validation-only and normal generation modes. The generation module,
+\texttt{gen\_lab.py}, then selects node images, generates \texttt{lab.conf},
+writes startup files, creates FRRouting configuration, copies matching
+resource directories, integrates Wireshark when requested, and reports how the
+resulting laboratory can be started and stopped.
+
+Lifecycle management is intentionally kept outside the generator itself.
+\texttt{start.sh} verifies that the supplied laboratory directory exists,
+changes to that directory, and executes \texttt{kathara lstart}.
+\texttt{stop.sh} performs the corresponding \texttt{kathara lclean}, while
+\texttt{del\_lab.sh} removes one generated directory or, when explicitly
+requested, the contents of the laboratory output directory. This separation
+keeps generation, runtime management, and filesystem deletion as distinct
+operations.
+
+The repository contains both the core framework and the later experimental
+components. The following view includes only the files relevant to the
+configuration, generation, and lifecycle architecture discussed in the first
+part of the thesis.
+
+\begin{lstlisting}[caption={Repository structure relevant to the framework core.},label={lst:repository-structure}]
+Thesis/
+|-- configs/
+|   |-- Test1.yml
+|   |-- Test_enterprise_multi_as_structured.yml
+|   |-- client-router-server.yml
+|   |-- dos_lab.yml
+|   |-- mitigation.yml
+|   |-- multi-area.yml
+|   `-- multi_AS.yml
+|-- src_gen_lab/
+|   |-- Lexer.py
+|   |-- Parser.py
+|   |-- __init__.py
+|   `-- gen_lab.py
+|-- labs/
+|-- generate_lab.py
+|-- start.sh
+|-- stop.sh
+|-- del_lab.sh
+`-- README.md
+\end{lstlisting}
+
+The \texttt{configs/} directory is the persistent source area. It contains YAML
+topologies and may also contain directories whose names match declared nodes.
+The \texttt{src\_gen\_lab/} package contains the implementation, whereas
+\texttt{labs/} contains generated output and is intentionally not expanded in
+the source-tree representation. This organisation expresses an important
+architectural distinction: source configuration is maintained independently
+from generated files and from the runtime state of the laboratory.
+
+\section{Operational Flow and Design Principles}
+\label{sec:operational-flow-design}
+
+The control flow begins when the user invokes the command-line entry point.
+The argument parser collects the requested configuration, the input and output
+directories, overwrite behaviour, validation mode, resource-import option, and
+Wireshark selection. The configuration path is then resolved. If the supplied
+argument already exists as a path, it is used directly; otherwise, the loader
+searches the configured directory for matching \texttt{.yml} and
+\texttt{.yaml} files. The YAML content is deserialised into ordinary Python
+objects.
+
+Structural validation runs before semantic analysis so that subsequent
+functions do not have to operate on a document that lacks mandatory elements
+such as \texttt{nodes} or \texttt{interfaces}. Semantic validation then checks
+the relationships inside the model and deliberately collects all detectable
+errors and warnings instead of stopping at the first issue. If at least one
+error exists, generation is not started. If validation succeeds and
+\cliopt{validate-only} is active, the process terminates without modifying
+the filesystem. Otherwise, the generator prepares the selected output
+directory and writes all derived artefacts.
+
+The generated directory is independent from the running state. Generation
+creates files; starting the laboratory creates containers and collision
+domains; stopping it removes the runtime environment; deleting the generated
+directory is yet another separate operation. Keeping these stages distinct
+prevents the project from conflating the declarative source, the generated
+representation, and the executing instance.
+
+Several design principles follow directly from this flow. First, the YAML
+file is treated as the declarative source of truth for topology and common
+node configuration. Generated files are derived output, which reduces
+duplication and allows the laboratory to be recreated through clean
+generation. Second, the framework deliberately generates standard Kathar\'a
+files instead of controlling containers directly through the Docker API or a
+private orchestration layer. Direct Docker control would have provided more
+runtime control, but it would also have duplicated responsibilities already
+implemented by Kathar\'a and tied the project to its own execution path. By
+generating ordinary Kathar\'a artefacts, the framework remains an input and
+validation layer rather than a replacement runtime; the output stays
+compatible with the normal Kathar\'a workflow and can be inspected or executed
+manually \cite{kathara_manpage}.
+
+Validation is also deliberately placed before filesystem modification. A
+structural or semantic error should not leave a partially generated
+laboratory, and the validation-only option makes the same checks available for
+manual review or automated workflows. Destructive operations follow the same
+principle of explicitness: an existing laboratory directory is not silently
+replaced. The user must select \cliopt{force} to write into existing output
+or \cliopt{clean} to remove and recreate it, making the potentially-
+destructive behaviour visible at the command line.
+
+Resource import uses a convention rather than an additional mapping file. A
+node-specific directory is associated with a node when their names match. This
+choice is simple and readable, but it creates a deliberate naming convention;
+when import checking is enabled, directories that do not match declared nodes
+are reported and skipped. Diagnostics are likewise optional rather than
+mandatory. Wireshark integration can be disabled non-interactively, while the
+user may attach the monitoring node only to the collision domains required for
+debugging or inspection. The core topology can therefore be generated without
+monitoring, and observation can be added only when needed.
+
+Together, these decisions support the non-functional objectives identified in
+Section~\ref{sec:problem-scope-requirements}. Reproducibility is obtained by maintaining the YAML
+source and regenerating output from it; transparency and compatibility are
+preserved through ordinary Kathar\'a and FRRouting files; safety is improved by
+validation-first and explicit overwrite semantics; modularity is reflected in
+the separation among loading, validation, generation, monitoring selection,
+and lifecycle operations; and traceability is provided by validation messages
+that refer to the affected node, interface, collision domain, neighbour, or
+field.
+
+
+\section{LLM-Assisted Configuration and Deterministic Validation}
+\label{sec:llm-role}
+
+General-purpose LLMs can assist with configuration authoring, but authoring,
+validation, and experiment execution are distinct responsibilities. The
+relevant question is therefore not whether an LLM can emit configuration text,
+but which guarantees are required before that text is used in a repeatable
+experiment. In this thesis, RQ5 is addressed as a design and discussion
+question through architectural analysis and comparison with the literature;
+no empirical benchmark of LLM-generated configurations is claimed.
+
+An LLM can translate informal intent into a candidate topology, allocate
+addresses, draft startup commands, produce FRRouting fragments, or create the
+YAML source accepted by the framework. Recent studies examine these
+capabilities in network configuration and intent-based management
+\cite{wang2024netconfeval,lira2025llmnetcfg,liu2025llmnetworking}. Such output
+is nevertheless candidate input rather than evidence that all addresses,
+gateways, routing relationships, node names, and cross-file references satisfy
+the laboratory invariants.
+
+The framework provides the complementary deterministic boundary. It applies
+the same structural and semantic checks on every invocation, derives
+coordinated Kathar\'a and FRRouting artefacts from one validated representation,
+and connects the generated laboratory to runtime measurements. This separation
+is important because technically plausible generated output may still contain
+functional or security weaknesses and therefore requires explicit checking
+\cite{pearce2022copilotsecurity}. The comparison in
+Table~\ref{tab:llm-framework-roles} summarises these complementary roles.
+
+\begin{table}[htbp]
+\centering
+\small
+\begin{tabular}{p{0.23\textwidth} p{0.32\textwidth} p{0.32\textwidth}}
+\toprule
+\textbf{Activity} & \textbf{Typical LLM contribution} & \textbf{Framework contribution} \\
+\midrule
+Expressing a network requirement & Accepts natural-language intent and can ask or answer clarifying questions. & Requires an explicit YAML representation; it does not interpret unrestricted natural language. \\
+Drafting topology and routing data & Can propose node roles, addresses, protocol parameters, and configuration fragments. & Provides the supported field model and turns accepted fields into standard Kathar\'a artefacts. \\
+Checking known invariants & Can review a draft and suggest likely mistakes, but the result remains model-generated advice. & Applies explicit structural and semantic rules and blocks generation on recognised errors. \\
+Maintaining cross-file consistency & Can generate several files, but consistency depends on the complete prompt, context, and generated output. & Derives multiple files from the same validated source representation. \\
+Handling unusual or unmodelled behaviour & Can suggest arbitrary Linux or FRRouting commands and explain advanced features. & Supports controlled escape mechanisms such as \texttt{commands} and \texttt{frr.config}, but cannot fully validate their semantics. \\
+Runtime diagnosis & Can interpret logs, command output, packet traces, and measured results supplied by the user. & Provides lifecycle operations, measurement tools, and optional packet capture that produce the evidence to be interpreted. \\
+Reproducibility & Requires preservation of the selected prompt, context, model assumptions, and generated artefacts if the exact interaction is important. & Preserves a versionable source configuration and deterministically regenerates the supported laboratory structure. \\
+\bottomrule
+\end{tabular}
+\caption{Complementary roles of LLM assistance and the developed framework.}
+\label{tab:llm-framework-roles}
+\end{table}
+
+The comparison does not establish that either component is universally
+superior. An LLM is suited to interpreting ambiguous intent, drafting candidate
+configurations, explaining syntax, and helping a user interpret diagnostics.
+The framework is narrower: it enforces the implemented configuration model,
+maintains consistency among generated files, and produces the runtime evidence
+required for evaluation.
+
+\paragraph{Combined authoring and validation workflow.}
+The workflow does not require a model embedded in the framework. A user may ask
+an LLM to draft or refine YAML and then submit that candidate to the same
+validation pipeline used for manually written input. Invalid candidates are
+rejected with structured diagnostics; accepted candidates are translated into
+standard Kathar\'a artefacts and executed. Logs, \texttt{vtysh} output,
+measurements, and packet captures can subsequently support human or LLM-assisted
+analysis.
+
+\begin{figure}[htbp]
+\centering
+\begin{tikzpicture}[
+    node distance=0.72cm,
+    every node/.style={font=\small},
+    box/.style={draw, rounded corners, minimum width=5.2cm, minimum height=0.65cm, align=center},
+    optional/.style={box, dashed},
+    arrow/.style={-{Latex[length=2mm]}, thick}
+]
+\node[box] (intent) {Experiment idea or natural-language network requirement};
+\node[optional, below=of intent] (llm1) {Optional LLM assistance: propose or refine YAML};
+\node[box, below=of llm1] (yaml) {Candidate declarative YAML configuration};
+\node[box, below=of yaml] (validate) {Framework structural and semantic validation};
+\node[box, below=of validate] (generate) {Deterministic Kathar\'a / FRRouting generation};
+\node[box, below=of generate] (runtime) {Kathar\'a execution, runtime checks, and measurements};
+\node[optional, below=of runtime] (llm2) {Optional human/LLM analysis of diagnostics and results};
+
+\draw[arrow] (intent) -- (llm1);
+\draw[arrow] (llm1) -- (yaml);
+\draw[arrow] (yaml) -- (validate);
+\draw[arrow] (validate) -- node[right]{\scriptsize valid} (generate);
+\draw[arrow] (generate) -- (runtime);
+\draw[arrow] (runtime) -- (llm2);
+\draw[arrow] (validate.east) -- ++(1.05,0) node[right,align=left]{\scriptsize errors / warnings} |- (llm1.east);
+\end{tikzpicture}
+\caption{Recommended workflow in which LLM assistance remains optional and the framework provides the deterministic validation and generation boundary.}
+\label{fig:llm-hybrid-workflow}
+\end{figure}
+
+The feedback path in Figure~\ref{fig:llm-hybrid-workflow} allows validation
+diagnostics to guide a bounded human- or LLM-assisted repair step. The accepted
+YAML remains the authoritative, versionable input, while measurements and logs
+from the emulated network remain the evidence used to evaluate the experiment.
+
+This architectural complementarity should not be interpreted as an empirical
+claim about LLM performance or as proof of complete network correctness. The
+current parser handles unknown keys permissively, and escape mechanisms such as
+\texttt{commands} and \texttt{frr.config} may contain behaviour outside its
+semantic model. Stricter schemas, repair policies, approval boundaries, and
+runtime verification are therefore future work, discussed further in
+\Cref{sec:future-llm-integration}.
+
+\section{Architectural Boundaries and Chapter Summary}
+\label{sec:architectural-boundaries-summary}
+
+The architecture deliberately remains specific to Kathar\'a and its file
+conventions. Supporting a different emulator would require a new output layer,
+and the current implementation should not be interpreted as a general network
+orchestration platform. The in-memory configuration is also based on nested
+mappings rather than explicit domain classes. This keeps the code compact for
+the present scope, but it makes disciplined validation and consistent key
+handling essential. A future version could introduce a formal schema or
+explicit classes for laboratories, nodes, interfaces, and routes.
+
+The YAML model does not attempt to expose every Linux networking option or
+every FRRouting command. Advanced configurations can still be expressed
+through custom startup commands or by supplying a complete manual FRR
+configuration through the supported escape hatch. This retains flexibility,
+but semantic validation can only reason about the configuration properties it
+understands explicitly. Generated files may also be edited manually, but such
+changes do not become persistent source information: a clean regeneration will
+remove them. Long-term modifications must therefore be made in the YAML source
+or in the corresponding node-resource directory.
+
+Within these boundaries, the framework implements a validation-first pipeline
+that converts a declarative source configuration into standard Kathar\'a
+artefacts while preserving a clear distinction among source files, generated
+output, and running containers. The comparison with LLM-assisted configuration
+adds another boundary: natural-language reasoning and draft generation may
+occur outside the framework, but the accepted YAML source remains the explicit
+interface to deterministic validation and generation. The architecture defines
+responsibilities for configuration loading, structural and semantic validation,
+laboratory generation, optional diagnostics, and lifecycle management, while
+the functional and non-functional requirements establish the behaviour expected
+from each stage.
+
+The next chapter examines the configuration language and the validation
+subsystem in detail. It describes the accepted YAML structures, path
+resolution and loading, structural checks, semantic rules, and the validation
+report used to decide whether laboratory generation may proceed.

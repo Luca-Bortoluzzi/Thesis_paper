@@ -1,0 +1,13 @@
+timestamp,scenario,container,cpu_percent,memory_usage,memory_percent,pids
+"2026-10-13T15:35:14.176+02:00","baseline","kathara_luke-ruyxex5uc4qjndb0lle9q_server_7b7XDhm79sSm9McBUuDjPw","0.05%","8.934MiB / 15.4GiB","0.06%","3"
+"2026-10-13T15:35:16.225+02:00","baseline","kathara_luke-ruyxex5uc4qjndb0lle9q_server_7b7XDhm79sSm9McBUuDjPw","0.89%","9.266MiB / 15.4GiB","0.06%","3"
+"2026-10-13T15:35:18.265+02:00","baseline","kathara_luke-ruyxex5uc4qjndb0lle9q_server_7b7XDhm79sSm9McBUuDjPw","0.70%","9.289MiB / 15.4GiB","0.06%","3"
+"2026-10-13T15:35:20.315+02:00","baseline","kathara_luke-ruyxex5uc4qjndb0lle9q_server_7b7XDhm79sSm9McBUuDjPw","0.26%","9.281MiB / 15.4GiB","0.06%","3"
+"2026-10-13T15:35:22.359+02:00","baseline","kathara_luke-ruyxex5uc4qjndb0lle9q_server_7b7XDhm79sSm9McBUuDjPw","0.79%","8.996MiB / 15.4GiB","0.06%","3"
+"2026-10-13T15:35:24.408+02:00","baseline","kathara_luke-ruyxex5uc4qjndb0lle9q_server_7b7XDhm79sSm9McBUuDjPw","0.81%","9.062MiB / 15.4GiB","0.06%","3"
+"2026-10-13T15:35:31.639+02:00","dos","kathara_luke-ruyxex5uc4qjndb0lle9q_server_7b7XDhm79sSm9McBUuDjPw","0.07%","9MiB / 15.4GiB","0.06%","3"
+"2026-10-13T15:35:33.676+02:00","dos","kathara_luke-ruyxex5uc4qjndb0lle9q_server_7b7XDhm79sSm9McBUuDjPw","3.99%","11.89MiB / 15.4GiB","0.08%","23"
+"2026-10-13T15:35:35.709+02:00","dos","kathara_luke-ruyxex5uc4qjndb0lle9q_server_7b7XDhm79sSm9McBUuDjPw","0.63%","10.74MiB / 15.4GiB","0.07%","23"
+"2026-10-13T15:35:37.747+02:00","dos","kathara_luke-ruyxex5uc4qjndb0lle9q_server_7b7XDhm79sSm9McBUuDjPw","0.06%","10.42MiB / 15.4GiB","0.07%","23"
+"2026-10-13T15:35:39.795+02:00","dos","kathara_luke-ruyxex5uc4qjndb0lle9q_server_7b7XDhm79sSm9McBUuDjPw","0.61%","10.93MiB / 15.4GiB","0.07%","23"
+"2026-10-13T15:35:41.835+02:00","dos","kathara_luke-ruyxex5uc4qjndb0lle9q_server_7b7XDhm79sSm9McBUuDjPw","6.33%","11.71MiB / 15.4GiB","0.07%","23"
